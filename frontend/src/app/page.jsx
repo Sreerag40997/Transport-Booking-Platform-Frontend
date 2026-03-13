@@ -1,28 +1,37 @@
 "use client";
-import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Bus, Train, Plane, Car, Sparkles, ShieldCheck, Zap, Headset, 
-  MapPin, Calendar, ArrowRightLeft, Search 
+  MapPin, Calendar, ArrowRightLeft, Search, Facebook, Twitter, Instagram, Linkedin, Mail, PhoneCall, MapPin as MapPinIcon,
+  CarTaxiFront,
+  CarTaxiFrontIcon
 } from 'lucide-react';
 
 const services = [
   { name: 'Bus Tickets', icon: Bus, id: 'bus' },
   { name: 'Train Tickets', icon: Train, id: 'train' },
   { name: 'Flight Tickets', icon: Plane, id: 'flight' },
-  { name: 'Taxi Rentals', icon: Car, id: 'taxi' },
+  { name: 'Taxi', icon: CarTaxiFrontIcon, id: 'taxi' },
+];
+
+const backgroundImages = [ 
+  "/images/Flight.png",
+  "/images/Taxi.avif",
+  "/images/train.avif",
+  "/images/Bus.avif"
 ];
 
 const offers = [
-  { title: 'Flat 15% Off on Flights', code: 'TRIPFLY15', img: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?q=80&w=600&auto=format&fit=crop' },
-  { title: 'Save ₹500 on First Bus', code: 'NEWBUS500', img: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?q=80&w=600&auto=format&fit=crop' },
-  { title: 'Free Taxi Upgrades', code: 'PREMIUMRIDE', img: 'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?q=80&w=600&auto=format&fit=crop' },
+  { title: 'Flat 15% Off on Flights', code: 'TRIPFLY15', img: "/images/offers/flightoffer.png" },
+  { title: 'Save ₹500 on First Bus', code: 'NEWBUS500', img: "/images/offers/Bus.avif" },
+  { title: 'Free Taxi Upgrades', code: 'PREMIUMRIDE', img: "/images/offers/taxioffer.avif" },
 ];
 
 const destinations = [
-  { name: 'Munnar, Kerala', tours: '120+ options', img: 'https://images.unsplash.com/photo-1593693397690-362cb9666fc2?q=80&w=800&auto=format&fit=crop' },
-  { name: 'Goa Beaches', tours: '85+ options', img: 'https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?q=80&w=800&auto=format&fit=crop' },
-  { name: 'Manali Mountains', tours: '90+ options', img: 'https://images.unsplash.com/photo-1605649487212-4dcb1b600228?q=80&w=800&auto=format&fit=crop' },
+  { name: 'Munnar, Kerala', tours: '120+ options', img: "/images/destinations/munnar.jpg" },
+  { name: 'Goa Beaches', tours: '85+ options', img: "/images/destinations/goa.jpg" },
+  { name: 'Manali Mountains', tours: '90+ options', img: "/images/destinations/manali.avif" },
 ];
 
 const features = [
@@ -33,9 +42,18 @@ const features = [
 ];
 
 export default function LandingPage() {
-  const [activeTab, setActiveTab] = useState('bus');
+  const [activeTab, setActiveTab] = useState('flight');
   const [fromLocation, setFromLocation] = useState('Kochi');
   const [toLocation, setToLocation] = useState('Bangalore');
+  const [currentBg, setCurrentBg] = useState(0);
+
+  // Background Slider Effect
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentBg((prevBg) => (prevBg + 1) % backgroundImages.length);
+    }, 5000); // Changes image every 5 seconds
+    return () => clearInterval(timer);
+  }, []);
 
   const handleSwap = () => {
     setFromLocation(toLocation);
@@ -45,16 +63,24 @@ export default function LandingPage() {
   return (
     <div className="relative overflow-hidden bg-slate-50">
       
-      {/* --- HERO SECTION (redBus Style) --- */}
+      {/* --- HERO SECTION --- */}
       <div className="relative pt-20 pb-32 lg:pt-28 lg:pb-40">
-        {/* Scenic Background Image with Emerald Overlay */}
-        <div className="absolute inset-0 z-0">
-          <img 
-            src="https://images.unsplash.com/photo-1506012787146-f92b2d7d6d96?q=80&w=2069&auto=format&fit=crop" 
-            alt="Beautiful Mountain Road" 
-            className="w-full h-full object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-emerald-900/90 via-emerald-800/80 to-slate-50"></div>
+        
+        {/* Animated Background Image Slider */}
+        <div className="absolute inset-0 z-0 bg-slate-900 overflow-hidden">
+          <AnimatePresence mode="popLayout">
+            <motion.img 
+              key={currentBg}
+              src={backgroundImages[currentBg]}
+              initial={{ opacity: 0, scale: 1.05 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1.5, ease: "easeInOut" }}
+              alt="Transport Background" 
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          </AnimatePresence>
+          <div className="absolute inset-0 bg-gradient-to-b from-emerald-900/90 via-emerald-900/70 to-slate-50"></div>
         </div>
         
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
@@ -81,24 +107,31 @@ export default function LandingPage() {
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2, type: 'spring', stiffness: 100 }}
-            className="max-w-5xl mx-auto bg-white rounded-3xl shadow-2xl shadow-emerald-900/20 overflow-hidden border border-slate-100"
+            className="max-w-5xl mx-auto bg-white rounded-2xl shadow-2xl shadow-emerald-900/20 overflow-hidden"
           >
             {/* Service Tabs */}
-            <div className="flex overflow-x-auto bg-slate-50/80 border-b border-slate-200 hide-scrollbar">
+            <div className="flex overflow-x-auto bg-white border-b border-slate-200 hide-scrollbar px-2 pt-2">
               {services.map((service) => {
                 const isActive = activeTab === service.id;
                 return (
                   <button
                     key={service.id}
                     onClick={() => setActiveTab(service.id)}
-                    className={`flex-1 flex items-center justify-center gap-2 py-5 px-6 font-semibold transition-all min-w-[150px]
+                    className={`flex-1 flex items-center justify-center gap-2 py-4 px-6 font-semibold transition-all min-w-[160px] relative
                       ${isActive 
-                        ? 'bg-white text-emerald-600 border-b-2 border-emerald-500 shadow-sm' 
-                        : 'text-slate-500 hover:text-emerald-500 hover:bg-emerald-50/50'
+                        ? 'text-emerald-600' 
+                        : 'text-slate-500 hover:text-emerald-500 hover:bg-slate-50 rounded-t-xl'
                       }`}
                   >
                     <service.icon size={20} className={isActive ? 'text-emerald-500' : 'text-slate-400'} />
                     {service.name}
+                    {/* Active Bottom Border Line */}
+                    {isActive && (
+                      <motion.div 
+                        layoutId="activeTab"
+                        className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500"
+                      />
+                    )}
                   </button>
                 );
               })}
@@ -106,51 +139,56 @@ export default function LandingPage() {
 
             {/* Form Inputs */}
             <div className="p-6 md:p-8">
-              <div className="flex flex-col md:flex-row items-center bg-white border border-slate-300 rounded-2xl shadow-sm focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all">
+              {/* The Inner Outline Box */}
+              <div className="flex flex-col md:flex-row items-stretch bg-white border border-slate-300 rounded-xl hover:border-emerald-300 focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500 transition-all shadow-sm">
                 
-                {/* From Input */}
-                <div className="flex-1 w-full px-6 py-4 hover:bg-slate-50 rounded-t-2xl md:rounded-l-2xl md:rounded-tr-none transition cursor-text group border-b md:border-b-0 md:border-r border-slate-300 relative">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">From</label>
-                  <div className="flex items-center gap-3">
-                    <MapPin size={24} className="text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
-                    <input 
-                      type="text" 
-                      value={fromLocation}
-                      onChange={(e) => setFromLocation(e.target.value)}
-                      className="w-full text-xl md:text-2xl font-bold text-slate-900 bg-transparent focus:outline-none truncate placeholder:font-normal placeholder:text-slate-400" 
-                      placeholder="Leaving from..." 
-                    />
+                {/* FROM & TO WRAPPER (Relative for the swap button) */}
+                <div className="flex flex-col md:flex-row flex-[2] relative">
+                  
+                  {/* From Input */}
+                  <div className="flex-1 px-6 py-4 hover:bg-slate-50 transition cursor-text group md:border-r border-b md:border-b-0 border-slate-300 rounded-t-xl md:rounded-l-xl md:rounded-tr-none">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">From</label>
+                    <div className="flex items-center gap-3">
+                      <MapPin size={20} className="text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
+                      <input 
+                        type="text" 
+                        value={fromLocation}
+                        onChange={(e) => setFromLocation(e.target.value)}
+                        className="w-full text-2xl font-bold text-slate-900 bg-transparent focus:outline-none truncate placeholder:font-normal placeholder:text-slate-300" 
+                        placeholder="Leaving from..." 
+                      />
+                    </div>
                   </div>
-                </div>
 
-                {/* Swap Button */}
-                <button 
-                  onClick={handleSwap}
-                  className="absolute left-1/2 -translate-x-1/2 md:relative md:left-auto md:translate-x-0 z-10 p-3 bg-white border border-slate-300 rounded-full text-emerald-600 hover:bg-emerald-50 hover:scale-110 shadow-md transition-all flex-shrink-0"
-                >
-                  <ArrowRightLeft size={20} />
-                </button>
+                  {/* Perfectly Centered Swap Button */}
+                  <button 
+                    onClick={handleSwap}
+                    className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-10 h-10 bg-white border border-slate-200 rounded-full text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 shadow-md flex items-center justify-center hover:scale-105 transition-all"
+                  >
+                    <ArrowRightLeft size={18} className="rotate-90 md:rotate-0" />
+                  </button>
 
-                {/* To Input */}
-                <div className="flex-1 w-full px-6 py-4 hover:bg-slate-50 transition cursor-text group border-b md:border-b-0 md:border-r border-slate-300">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">To</label>
-                  <div className="flex items-center gap-3">
-                    <MapPin size={24} className="text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
-                    <input 
-                      type="text" 
-                      value={toLocation}
-                      onChange={(e) => setToLocation(e.target.value)}
-                      className="w-full text-xl md:text-2xl font-bold text-slate-900 bg-transparent focus:outline-none truncate placeholder:font-normal placeholder:text-slate-400" 
-                      placeholder="Going to..." 
-                    />
+                  {/* To Input */}
+                  <div className="flex-1 px-6 py-4 hover:bg-slate-50 transition cursor-text group md:border-r border-b md:border-b-0 border-slate-300">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">To</label>
+                    <div className="flex items-center gap-3">
+                      <MapPin size={20} className="text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
+                      <input 
+                        type="text" 
+                        value={toLocation}
+                        onChange={(e) => setToLocation(e.target.value)}
+                        className="w-full text-2xl font-bold text-slate-900 bg-transparent focus:outline-none truncate placeholder:font-normal placeholder:text-slate-300" 
+                        placeholder="Going to..." 
+                      />
+                    </div>
                   </div>
                 </div>
 
                 {/* Date Input */}
-                <div className="flex-[0.8] w-full px-6 py-4 hover:bg-slate-50 transition cursor-text group">
-                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block">Travel Date</label>
+                <div className="flex-[1] px-6 py-4 hover:bg-slate-50 transition cursor-text group w-full">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-1 block">Travel Date</label>
                   <div className="flex items-center gap-3">
-                    <Calendar size={24} className="text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
+                    <Calendar size={20} className="text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
                     <input 
                       type="date" 
                       className="w-full text-xl font-bold text-slate-900 bg-transparent focus:outline-none [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-60 hover:[&::-webkit-calendar-picker-indicator]:opacity-100" 
@@ -158,11 +196,13 @@ export default function LandingPage() {
                   </div>
                 </div>
 
-                {/* Search Button */}
-                <button className="w-full md:w-auto h-full m-2 md:m-3 px-8 py-5 md:py-0 flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold text-xl rounded-xl shadow-lg shadow-emerald-500/30 transition-all active:scale-95">
-                  <Search size={24} />
-                  <span>Search</span>
-                </button>
+                {/* Search Button Container */}
+                <div className="p-2 w-full md:w-auto flex-shrink-0 bg-slate-50 md:bg-transparent rounded-b-xl md:rounded-b-none border-t md:border-t-0 border-slate-300 flex items-center justify-center">
+                  <button className="w-full md:w-auto h-full px-10 py-4 flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xl rounded-lg shadow-md hover:shadow-lg transition-all active:scale-95">
+                    <Search size={22} />
+                    <span>Search</span>
+                  </button>
+                </div>
 
               </div>
             </div>
@@ -262,6 +302,84 @@ export default function LandingPage() {
           ))}
         </div>
       </div>
+
+      {/* --- FOOTER SECTION --- */}
+      <footer className="bg-slate-900 pt-20 pb-10 border-t border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
+            
+            {/* Brand Column */}
+            <div className="space-y-6">
+              <span className="text-3xl font-extrabold bg-gradient-to-r from-emerald-400 to-emerald-200 bg-clip-text text-transparent tracking-tight">
+                TRIPneO
+              </span>
+              <p className="text-slate-400 text-sm leading-relaxed">
+                The scalable microservices-based transport booking platform. We use AI to help you find the best routes for Bus, Train, Flight, and Taxi rentals across India.
+              </p>
+              <div className="flex gap-4">
+                <a href="#" className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-emerald-600 hover:text-white transition-all"><Facebook size={18} /></a>
+                <a href="#" className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-emerald-600 hover:text-white transition-all"><Twitter size={18} /></a>
+                <a href="#" className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-emerald-600 hover:text-white transition-all"><Instagram size={18} /></a>
+                <a href="#" className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:bg-emerald-600 hover:text-white transition-all"><Linkedin size={18} /></a>
+              </div>
+            </div>
+
+            {/* Quick Links */}
+            <div>
+              <h4 className="text-white font-bold text-lg mb-6">Book Tickets</h4>
+              <ul className="space-y-4">
+                <li><a href="#" className="text-slate-400 hover:text-emerald-400 transition-colors text-sm">Search Flights</a></li>
+                <li><a href="#" className="text-slate-400 hover:text-emerald-400 transition-colors text-sm">Book Bus Tickets</a></li>
+                <li><a href="#" className="text-slate-400 hover:text-emerald-400 transition-colors text-sm">IRCTC Train Booking</a></li>
+                <li><a href="#" className="text-slate-400 hover:text-emerald-400 transition-colors text-sm">Airport Taxi Rentals</a></li>
+                <li><a href="#" className="text-slate-400 hover:text-emerald-400 transition-colors text-sm">Check PNR Status</a></li>
+              </ul>
+            </div>
+
+            {/* Support */}
+            <div>
+              <h4 className="text-white font-bold text-lg mb-6">Support</h4>
+              <ul className="space-y-4">
+                <li><a href="#" className="text-slate-400 hover:text-emerald-400 transition-colors text-sm">24/7 AI Chatbot Help</a></li>
+                <li><a href="#" className="text-slate-400 hover:text-emerald-400 transition-colors text-sm">Cancellation & Refunds</a></li>
+                <li><a href="#" className="text-slate-400 hover:text-emerald-400 transition-colors text-sm">Report Fraud</a></li>
+                <li><a href="#" className="text-slate-400 hover:text-emerald-400 transition-colors text-sm">Contact Us</a></li>
+                <li><a href="#" className="text-slate-400 hover:text-emerald-400 transition-colors text-sm">Privacy Policy</a></li>
+              </ul>
+            </div>
+
+            {/* Contact Info */}
+            <div>
+              <h4 className="text-white font-bold text-lg mb-6">Contact Us</h4>
+              <ul className="space-y-4">
+                <li className="flex items-start gap-3">
+                  <MapPinIcon size={20} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                  <span className="text-slate-400 text-sm leading-relaxed">Thurakkal, Manjeri<br/>Kerala, India 673016</span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <PhoneCall size={18} className="text-emerald-500 flex-shrink-0" />
+                  <span className="text-slate-400 text-sm">+91 99999 99999</span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Mail size={18} className="text-emerald-500 flex-shrink-0" />
+                  <span className="text-slate-400 text-sm">support@tripneo.com</span>
+                </li>
+              </ul>
+            </div>
+
+          </div>
+
+          <div className="border-t border-slate-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
+            <p className="text-slate-500 text-sm text-center md:text-left">
+              &copy; {new Date().getFullYear()} TRIPneO. All rights reserved. Built with Go & Next.js.
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500 text-sm">Secured by</span>
+              <ShieldCheck size={20} className="text-emerald-500" />
+            </div>
+          </div>
+        </div>
+      </footer>
 
     </div>
   );
