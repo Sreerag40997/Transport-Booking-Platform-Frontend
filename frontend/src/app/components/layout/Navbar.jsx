@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import AuthModal from '../ui/AuthModal';
 import { useAuthStore } from '@/lib/store';
-import { api } from '@/lib/axios'; 
+import { authApi } from '@/lib/authApi';
 
 export default function Navbar() {
   const [modalConfig, setModalConfig] = useState({ isOpen: false, view: 'login' });
@@ -45,7 +45,7 @@ export default function Navbar() {
     setIsProfileOpen(false);
     const confirmLogout = window.confirm("Are you sure you want to log out?");
     if (!confirmLogout) return;
-    try { await api.post('/auth/logout'); } 
+    try { await authApi.logout(); }
     catch (error) { console.error("Logout failed", error); } 
     finally { logout(); }
   };
@@ -135,7 +135,7 @@ export default function Navbar() {
                 </div>
               ) : (
                 <div className="flex items-center gap-2 md:gap-3">
-                  <button onClick={openLogin} className={`font-bold text-sm transition-colors hidden sm:block px-2 ${isScrolled ? 'text-slate-600 hover:text-emerald-600' : 'text-white hover:text-emerald-200 drop-shadow-md'}`}>Login</button>
+                  <button onClick={openLogin} className={`font-bold text-sm transition-colors px-2 ${isScrolled ? 'text-slate-600 hover:text-emerald-600' : 'text-white hover:text-emerald-200 drop-shadow-md'}`}>Login</button>
                   <button onClick={openRegister} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs md:text-sm px-5 py-2 md:py-2.5 rounded-full shadow-lg transition-transform active:scale-95">Sign Up</button>
                 </div>
               )}

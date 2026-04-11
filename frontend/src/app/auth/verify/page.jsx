@@ -77,7 +77,7 @@ function VerifyEmailForm() {
     setError('');
 
     try {
-      await api.post('/auth/verify-email', { 
+      await api.post('/auth/verify-otp', { 
         email: emailParam !== 'your email' ? emailParam : undefined, 
         otp: otpString 
       });
@@ -125,7 +125,7 @@ function VerifyEmailForm() {
           Check your email
         </h2>
         <p className="text-slate-500 text-center mt-3 text-base leading-relaxed px-4">
-          We've sent a 6-digit verification code to <br/>
+          We&apos;ve sent a 6-digit verification code to <br/>
           <span className="font-bold text-slate-900">{emailParam}</span>
         </p>
       </div>
@@ -170,7 +170,7 @@ function VerifyEmailForm() {
 
       <div className="mt-10 text-center">
         <p className="text-sm text-slate-500 font-medium">
-          Didn't receive the code?{' '}
+          Didn&apos;t receive the code?{' '}
           {canResend ? (
             <button 
               onClick={handleResend}
