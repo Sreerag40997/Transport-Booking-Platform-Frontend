@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form';
 import { User, Mail, Lock, Loader2, X, MailCheck, ArrowLeft } from 'lucide-react';
 import Image from 'next/image';
 import { api } from '@/lib/axios';
+import { authApi } from '@/lib/authApi';
 import { useAuthStore } from '@/lib/store';
 
 export default function AuthModal({ isOpen, onClose, initialView = 'login' }) {
@@ -58,20 +59,23 @@ export default function AuthModal({ isOpen, onClose, initialView = 'login' }) {
     setError('');
     try {
       if (view === 'login') {
-        const response = await api.post('/auth/login', { 
+        const response = await authApi.login({
           email: data.email, 
           password: data.password 
         });
         
         // Try to get the name from the backend response, fallback to email prefix
-        const user = response.data?.user || {};
+        const user = response?.user || {};
         const displayName = user.name || data.email.split('@')[0];
         
-        setAuth({ email: data.email, name: displayName, ...user }); 
+        setAuth({
+          user: { email: data.email, name: displayName, ...user },
+          token: response?.token || null,
+        });
         handleClose(); 
       } else {
         // Register User
-        await api.post('/auth/register', {
+        await authApi.register({
           name: data.name, // <-- Send the name to the Go backend
           email: data.email,
           password: data.password
@@ -134,19 +138,26 @@ export default function AuthModal({ isOpen, onClose, initialView = 'login' }) {
 
     try {
       // 1. Verify the OTP
-      await api.post('/auth/verify-otp', { 
+      await authApi.verifyOtp({
         email: pendingEmail, 
         otp: otpString 
       });
       
       // 2. Auto-Login right after successful verification!
-      await api.post('/auth/login', { 
+      const loginResponse = await authApi.login({
         email: pendingEmail, 
         password: pendingPassword 
       });
 
       // 3. Update Zustand Store (Use the stored pendingName instead of splitting email)
-      setAuth({ email: pendingEmail, name: pendingName }); 
+      setAuth({
+        user: {
+          email: pendingEmail,
+          name: loginResponse?.user?.name || pendingName,
+          ...(loginResponse?.user || {}),
+        },
+        token: loginResponse?.token || null,
+      });
 
       // 4. Close the modal seamlessly
       handleClose();
@@ -341,7 +352,7 @@ export default function AuthModal({ isOpen, onClose, initialView = 'login' }) {
 
                     <div className="mt-8 text-center">
                       <p className="text-sm text-slate-500 font-medium">
-                        Didn't receive the code?{' '}
+                        Didn&apos;t receive the code?{' '}
                         {canResend ? (
                           <button onClick={handleResendOtp} type="button" className="text-emerald-600 font-bold hover:text-emerald-500 transition-colors">Resend OTP</button>
                         ) : (
