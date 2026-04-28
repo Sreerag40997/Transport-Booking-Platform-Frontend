@@ -68,7 +68,7 @@ module.exports = {
       animation: {
         'pulse-slow': 'pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         'subtle-pulse': 'subtle-pulse 2s ease-in-out infinite',
-        'radar': 'pulse 3s infinite ease-out',
+        'radar': 'radar-pulse 3s infinite ease-out',
         'blink': 'blink 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
       },
       keyframes: {
@@ -80,7 +80,7 @@ module.exports = {
           '0%, 100%': { transform: 'scale(1)' },
           '50%': { transform: 'scale(1.02)' },
         },
-        'pulse': {
+        'radar-pulse': {
           '0%': { width: '40px', height: '40px', opacity: 1 },
           '100%': { width: '120px', height: '120px', opacity: 0 },
         },
