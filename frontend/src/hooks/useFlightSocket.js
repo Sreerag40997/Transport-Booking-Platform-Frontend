@@ -15,7 +15,7 @@ export function useFlightSocket(userId, onMessage) {
   useEffect(() => {
     if (!userId) return;
 
-    const wsUrl = `ws://localhost:8080/api/flights/ws?userId=${userId}`;
+    const wsUrl = `ws://localhost:8080/api/flights/ws`;
     let socket;
     let reconnectTimeout;
 

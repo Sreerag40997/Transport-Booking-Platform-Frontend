@@ -143,7 +143,7 @@ export default function FlightSearchPage() {
             </span>
             <h2 className="font-headline text-4xl text-primary mb-6">Global Gateways</h2>
             <p className="text-outline font-body leading-relaxed">
-              Our premier network connects the world's most vibrant metropolises with unmatched frequency and service standards.
+              Our premier network connects the worlds most vibrant metropolises with unmatched frequency and service standards.
             </p>
           </div>
           <a className="group text-primary font-label text-[11px] uppercase tracking-[0.2em] font-bold flex items-center gap-3 hover:text-secondary transition-colors" href="#">

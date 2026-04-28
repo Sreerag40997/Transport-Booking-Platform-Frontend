@@ -1,6 +1,7 @@
 import './globals.css';
 import { Noto_Serif, Inter } from 'next/font/google';
 import Navbar from '@/app/components/layout/Navbar';
+import ChatWidget from '@/app/components/layout/ChatWidget';
 
 export const metadata = {
   title: 'Tripneo | Digital Concierge Flight Booking',
@@ -31,6 +32,7 @@ export default function RootLayout({ children }) {
         <main className="flex-grow">
           {children}
         </main>
+        <ChatWidget />
       </body>
     </html>
   );
