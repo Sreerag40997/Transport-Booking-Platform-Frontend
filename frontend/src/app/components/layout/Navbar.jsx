@@ -4,8 +4,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  UserCircle, LogOut, Bus, Train, Plane, CarTaxiFront, 
+import {
+  UserCircle, LogOut, Bus, Train, Plane, CarTaxiFront,
   ChevronDown, Ticket, User, Home
 } from 'lucide-react';
 import AuthModal from '../ui/AuthModal';
@@ -17,7 +17,7 @@ export default function Navbar() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const dropdownRef = useRef(null);
-  
+
   const pathname = usePathname();
   const { isAuthenticated, user, logout, isAuthModalOpen, setAuthModalOpen } = useAuthStore();
 
@@ -46,13 +46,13 @@ export default function Navbar() {
     const confirmLogout = window.confirm("Are you sure you want to log out?");
     if (!confirmLogout) return;
     try { await authApi.logout(); }
-    catch (error) { console.error("Logout failed", error); } 
+    catch (error) { console.error("Logout failed", error); }
     finally { logout(); }
   };
 
   const navLinks = [
     { name: 'Flights', href: '/', icon: Plane },
-    { name: 'Buses', href: '/bus', icon: Bus },
+    { name: 'Buses', href: '/buses', icon: Bus },
     { name: 'Trains', href: '/train', icon: Train },
     { name: 'Cabs', href: '/taxi', icon: CarTaxiFront },
   ];
@@ -60,7 +60,7 @@ export default function Navbar() {
   // YouTube Style Mobile Bottom Nav links
   const mobileNavLinks = [
     { name: 'Home', href: '/', icon: Home },
-    ...navLinks.filter(l => l.name !== 'Flights'), 
+    ...navLinks.filter(l => l.name !== 'Flights'),
     ...(isAuthenticated ? [{ name: 'My Trips', href: '/trips', icon: Ticket }] : [])
   ];
 
@@ -70,7 +70,7 @@ export default function Navbar() {
       <nav className={`fixed top-0 z-50 w-full transition-all duration-300 ${isScrolled ? 'bg-white shadow-lg border-b border-slate-100 py-0' : 'bg-transparent py-2'}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16 md:h-20">
-            
+
             {/* Logo */}
             <Link href="/" className="flex items-center gap-2 group">
               <div className="relative flex items-center justify-center bg-white shadow-md rounded-xl p-1.5 transition-transform group-hover:scale-105">
@@ -86,8 +86,8 @@ export default function Navbar() {
               {navLinks.map((link) => {
                 const isActive = pathname === link.href || (link.href !== '/' && pathname.startsWith(link.href));
                 return (
-                  <Link 
-                    key={link.name} href={link.href} 
+                  <Link
+                    key={link.name} href={link.href}
                     className={`flex flex-col items-center justify-center w-20 h-full relative group transition-colors ${isScrolled ? (isActive ? 'text-emerald-600' : 'text-slate-500 hover:text-emerald-600') : (isActive ? 'text-emerald-400 drop-shadow' : 'text-white/80 hover:text-white')}`}
                   >
                     <link.icon size={22} className={`mb-1 transition-transform group-hover:-translate-y-1 ${isActive ? 'scale-110' : ''}`} />
@@ -119,7 +119,7 @@ export default function Navbar() {
                     </div>
                     <ChevronDown size={16} className={`transition-transform duration-300 ${isProfileOpen ? 'rotate-180' : ''}`} />
                   </button>
-                  
+
                   {/* Dropdown */}
                   <AnimatePresence>
                     {isProfileOpen && (
