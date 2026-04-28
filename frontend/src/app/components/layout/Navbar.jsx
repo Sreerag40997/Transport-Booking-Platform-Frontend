@@ -52,7 +52,7 @@ export default function Navbar() {
 
   const navLinks = [
     { name: 'Flights', href: '/flights', icon: Plane },
-    { name: 'Buses', href: '/bus', icon: Bus },
+    { name: 'Buses', href: '/buses', icon: Bus },
     { name: 'Trains', href: '/train', icon: Train },
     { name: 'Cabs', href: '/taxi', icon: CarTaxiFront },
   ];
