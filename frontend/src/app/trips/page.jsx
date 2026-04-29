@@ -27,6 +27,8 @@ export default function MyTripsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [cancellingId, setCancellingId] = useState(null);
   const [error, setError] = useState(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [bookingToCancel, setBookingToCancel] = useState(null);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -52,23 +54,23 @@ export default function MyTripsPage() {
     }
   }, [isAuthenticated, authLoading, router]);
 
-  const handleCancel = async (e, bookingId) => {
+  const initiateCancel = (e, bookingId) => {
     e.stopPropagation();
+    setBookingToCancel(bookingId);
+    setShowCancelModal(true);
+  };
+
+  const confirmCancel = async () => {
+    if (!bookingToCancel) return;
+    setShowCancelModal(false);
     
-    const reason = window.prompt("Please enter a reason for cancellation (optional):");
-    if (reason === null) return; // User cancelled the prompt
-
-    if (!window.confirm("Are you sure you want to cancel this booking? This action might incur cancellation fees based on the airline policy.")) {
-      return;
-    }
-
     try {
-      setCancellingId(bookingId);
-      const res = await flightApi.cancelBooking(bookingId, reason);
+      setCancellingId(bookingToCancel);
+      const res = await flightApi.cancelBooking(bookingToCancel, "User requested cancellation");
       
       // Update local state to reflect cancellation immediately
       setBookings(prev => prev.map(b => 
-        b.id === bookingId 
+        b.id === bookingToCancel 
           ? { 
               ...b, 
               status: 'CANCELLED', 
@@ -84,6 +86,7 @@ export default function MyTripsPage() {
       alert(err.response?.data?.error || "Failed to cancel booking. Please try again.");
     } finally {
       setCancellingId(null);
+      setBookingToCancel(null);
     }
   };
 
@@ -303,7 +306,7 @@ export default function MyTripsPage() {
                             <button
                               type="button"
                               disabled={cancellingId === booking.id}
-                              onClick={(e) => handleCancel(e, booking.id)}
+                              onClick={(e) => initiateCancel(e, booking.id)}
                               className="px-3 py-1.5 rounded-full text-xs font-bold border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 transition-colors flex items-center gap-1 disabled:opacity-50"
                             >
                               {cancellingId === booking.id ? (
@@ -333,6 +336,44 @@ export default function MyTripsPage() {
           </div>
         )}
       </div>
+    
+      {/* Custom Cancellation Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl shadow-2xl p-8 max-w-md w-full"
+          >
+            <div className="flex items-center gap-4 text-rose-600 mb-4">
+              <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center">
+                <AlertCircle size={24} />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800">Cancel Booking?</h3>
+            </div>
+            <p className="text-slate-600 mb-8">
+              Are you sure you want to cancel this booking? This action cannot be undone, and cancellation fees may apply based on the airline's policy.
+            </p>
+            <div className="flex gap-4 w-full">
+              <button
+                onClick={() => {
+                  setShowCancelModal(false);
+                  setBookingToCancel(null);
+                }}
+                className="flex-1 py-3 px-4 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+              >
+                Keep Booking
+              </button>
+              <button
+                onClick={confirmCancel}
+                className="flex-1 py-3 px-4 rounded-xl font-bold text-white bg-rose-500 hover:bg-rose-600 transition-colors shadow-lg shadow-rose-200"
+              >
+                Yes, Cancel
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
