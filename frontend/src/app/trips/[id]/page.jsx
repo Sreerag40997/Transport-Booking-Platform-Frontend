@@ -2,10 +2,27 @@
 import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Plane, Calendar, Clock, Ticket as TicketIcon, User, CreditCard, ChevronLeft, Download, MapPin, CheckCircle2 } from 'lucide-react';
+import { Plane, Calendar, Clock, User, ChevronLeft, Download, MapPin, XCircle, Loader2, AlertCircle } from 'lucide-react';
 import { flightApi } from '@/lib/flightApi';
 import { useAuthStore } from '@/lib/store';
 import Link from 'next/link';
+
+const formatCurrency = (amount, currency = 'INR') => {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: 2,
+  }).format(Number(amount || 0));
+};
+
+const formatStatusLabel = (status) => {
+  if (!status) return 'Unknown';
+  return status
+    .toLowerCase()
+    .split('_')
+    .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
+    .join(' ');
+};
 
 export default function TicketPage({ params }) {
   const router = useRouter();
@@ -13,10 +30,10 @@ export default function TicketPage({ params }) {
   const unwrappedParams = use(params);
   const bookingId = unwrappedParams.id;
 
-  const { isAuthenticated, isLoading: authLoading, user } = useAuthStore();
+  const { isAuthenticated, isLoading: authLoading } = useAuthStore();
   const [booking, setBooking] = useState(null);
-  const [ticketDetails, setTicketDetails] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -32,7 +49,6 @@ export default function TicketPage({ params }) {
                 // The e-ticket route returns deep info
                 const res = await flightApi.getETicket(bookingId);
                 setBooking(res?.data || res);
-                setTicketDetails(res?.data || res); // Fallback
             } catch (err) {
                 console.error("Error fetching ticket:", err);
                 setError("Failed to load your ticket details.");
@@ -44,6 +60,35 @@ export default function TicketPage({ params }) {
         fetchTicket();
     }
   }, [isAuthenticated, authLoading, router, bookingId]);
+
+  const handleCancel = async () => {
+    const reason = window.prompt("Please enter a reason for cancellation (optional):");
+    if (reason === null) return;
+
+    if (!window.confirm("Are you sure you want to cancel this booking?")) {
+      return;
+    }
+
+    try {
+      setIsCancelling(true);
+      const res = await flightApi.cancelBooking(bookingId, reason);
+      
+      // Refresh local booking state
+      setBooking(prev => ({
+        ...prev,
+        status: 'CANCELLED',
+        refund_status: res.refund_status || 'PENDING',
+        refund_amount: res.refund_amount || 0
+      }));
+      
+      alert("Booking cancelled successfully.");
+    } catch (err) {
+      console.error("Cancellation failed:", err);
+      alert(err.response?.data?.error || "Failed to cancel booking.");
+    } finally {
+      setIsCancelling(false);
+    }
+  };
 
   if (authLoading || isLoading) {
     return (
@@ -71,6 +116,12 @@ export default function TicketPage({ params }) {
   const flightDate = new Date(flight.departure_time || Date.now());
   const pnr = booking.pnr || 'TRIPNEO';
   const seatClass = booking.seat_class || 'ECONOMY';
+  const bookingStatus = booking.status || 'UNKNOWN';
+  const normalizedBookingStatus = bookingStatus.toUpperCase();
+  const canTrack = normalizedBookingStatus === 'CONFIRMED' && Boolean(booking.pnr);
+  const refundStatus = booking.refund_status || null;
+  const hasRefundAmount = typeof booking.refund_amount === 'number';
+  const hasTotalAmount = typeof booking.total_amount === 'number';
 
   return (
     <div className="min-h-screen bg-slate-100 pt-24 pb-20 px-4 md:px-8 flex justify-center items-start">
@@ -81,11 +132,69 @@ export default function TicketPage({ params }) {
             <Link href="/trips" className="flex items-center gap-2 text-slate-500 hover:text-emerald-600 font-bold transition-colors">
                 <ChevronLeft size={20} /> Back to Trips
             </Link>
-            {booking.status === "CONFIRMED" && (
-                <button className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-bold py-2 px-4 rounded-full text-sm flex items-center gap-2 transition-colors border border-emerald-200 shadow-sm">
-                    <Download size={16} /> Download PDF
-                </button>
+            <div className="flex items-center gap-3">
+                {(normalizedBookingStatus === "CONFIRMED" || normalizedBookingStatus === "PENDING") && (
+                    <button 
+                        disabled={isCancelling}
+                        onClick={handleCancel}
+                        className="bg-rose-50 text-rose-600 hover:bg-rose-100 font-bold py-2 px-4 rounded-full text-sm flex items-center gap-2 transition-colors border border-rose-200 shadow-sm disabled:opacity-50"
+                    >
+                        {isCancelling ? <Loader2 size={16} className="animate-spin" /> : <XCircle size={16} />}
+                        Cancel Booking
+                    </button>
+                )}
+                {normalizedBookingStatus === "CONFIRMED" && (
+                    <button className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-bold py-2 px-4 rounded-full text-sm flex items-center gap-2 transition-colors border border-emerald-200 shadow-sm">
+                        <Download size={16} /> Download PDF
+                    </button>
+                )}
+            </div>
+        </div>
+
+        <div className={`rounded-2xl border p-5 ${normalizedBookingStatus === 'CANCELLED' ? 'bg-rose-50 border-rose-100' : 'bg-emerald-50 border-emerald-100'}`}>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-1">Booking Status</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                  normalizedBookingStatus === 'CANCELLED'
+                    ? 'bg-rose-100 text-rose-700'
+                    : normalizedBookingStatus === 'CONFIRMED'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {formatStatusLabel(bookingStatus)}
+                </span>
+                {hasTotalAmount && (
+                  <span className="text-sm font-semibold text-slate-700">
+                    Fare Paid: {formatCurrency(booking.total_amount, booking.currency || 'INR')}
+                  </span>
+                )}
+              </div>
+            </div>
+            {canTrack && (
+              <Link
+                href={`/flights/status/${pnr}`}
+                className="bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-100 font-bold py-2 px-4 rounded-full text-sm text-center transition-colors"
+              >
+                Track This Flight
+              </Link>
             )}
+          </div>
+          {normalizedBookingStatus === 'CANCELLED' && (
+            <div className="mt-4 pt-4 border-t border-rose-100 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-1">Refund Status</p>
+                <p className="text-sm font-semibold text-rose-700">{formatStatusLabel(refundStatus || 'PENDING')}</p>
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-1">Refund Amount</p>
+                <p className="text-sm font-semibold text-rose-700">
+                  {hasRefundAmount ? formatCurrency(booking.refund_amount, booking.currency || 'INR') : 'Will be updated soon'}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Boarding Pass Container List */}
@@ -180,7 +289,7 @@ export default function TicketPage({ params }) {
                             
                             <div className="flex justify-center bg-white p-2 rounded-lg mb-2">
                                 <img 
-                                    src={`http://localhost:8080/api/qr/generate?data=${pnr}-${passenger.seat_number}`} 
+                                    src={booking.qr_code_url || `http://localhost:8080/api/qr/generate?data=${pnr}-${passenger.seat_number}`} 
                                     alt="QR Code Ticket Validation" 
                                     className="w-24 h-24 object-contain"
                                     onError={(e) => e.target.style.display = 'none'}
@@ -209,7 +318,7 @@ export default function TicketPage({ params }) {
         </div>
 
         {/* Live Status and tracking link */}
-        {booking.status === "CONFIRMED" && (
+        {canTrack && (
             <motion.div 
                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0, transition: { delay: 0.2 } }}
                className="bg-emerald-500 rounded-2xl p-6 text-white flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl shadow-emerald-500/20"
