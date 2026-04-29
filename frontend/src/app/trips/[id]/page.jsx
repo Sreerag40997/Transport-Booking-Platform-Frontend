@@ -130,9 +130,19 @@ export default function TicketDetailPage() {
                 )}
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-1">Total Paid</p>
-              <p className="text-2xl font-black text-slate-900">{formatCurrency(booking.total_amount)}</p>
+            
+            <div className="flex flex-col sm:flex-row gap-6 text-right sm:items-center">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-1">Total Paid</p>
+                <p className={`text-2xl font-black ${normalizedBookingStatus === 'CANCELLED' ? 'text-slate-400 line-through' : 'text-slate-900'}`}>{formatCurrency(booking.total_amount)}</p>
+              </div>
+              
+              {normalizedBookingStatus === 'CANCELLED' && booking.refund_amount !== undefined && (
+                <div className="pl-6 border-l border-rose-200">
+                  <p className="text-xs font-bold uppercase tracking-widest text-rose-500 mb-1">Refund Amount</p>
+                  <p className="text-2xl font-black text-rose-600">{formatCurrency(booking.refund_amount)}</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -212,7 +222,14 @@ export default function TicketDetailPage() {
                                 <p className="font-bold">{seatClass}</p>
                             </div>
                             <div className="pt-6 border-t border-slate-700/50">
-                                <div className="w-full h-16 opacity-30 bg-white rounded-sm"></div>
+                                <div className="flex justify-center bg-white p-2 rounded-lg mb-2">
+                                    <img 
+                                        src={booking.qr_code_url || `http://localhost:8080/api/qr/generate?data=${pnr}-${passenger.seat_number}`} 
+                                        alt="QR Code" 
+                                        className="w-20 h-20 object-contain"
+                                        onError={(e) => e.target.style.display = 'none'}
+                                    />
+                                </div>
                                 <p className="text-center text-[10px] mt-2 font-mono text-slate-500 uppercase tracking-[0.1em]">
                                     {`${booking.id?.split('-')[0] || 'VOID'}-${pnr}`}
                                 </p>
