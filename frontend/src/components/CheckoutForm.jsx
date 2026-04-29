@@ -7,7 +7,7 @@ import {
   useElements
 } from '@stripe/react-stripe-js';
 
-export default function CheckoutForm({ bookingId, onPaymentSuccess }) {
+export default function CheckoutForm({ bookingId, onPaymentSuccess, returnUrl }) {
   const stripe = useStripe();
   const elements = useElements();
 
@@ -28,7 +28,7 @@ export default function CheckoutForm({ bookingId, onPaymentSuccess }) {
       confirmParams: {
         // Stripe usually expects a return_url for redirect-based payments (like 3D Secure)
         // For our real-time WS flow, we primarily care about the paymentIntent object or the webhook
-        return_url: `${window.location.origin}/flights/confirmation?booking_id=${bookingId}`,
+        return_url: returnUrl || `${window.location.origin}/flights/confirmation?booking_id=${bookingId}`,
       },
       redirect: 'if_required',
     });

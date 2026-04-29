@@ -54,7 +54,7 @@ export default function BusReviewPage() {
 
   useBusSocket(user?.id, (msg) => {
     if ((msg.type === 'SESSION_EXPIRED' || msg.event === 'SESSION_EXPIRED') &&
-        (msg.payload?.booking_id === booking?.id || msg.booking_id === booking?.id)) {
+      (msg.payload?.booking_id === booking?.id || msg.booking_id === booking?.id)) {
       setSessionExpired(true);
     }
 
@@ -113,6 +113,13 @@ export default function BusReviewPage() {
     e.preventDefault();
     if (sessionExpired || !booking?.id) return;
 
+    // The booking response already contains the Stripe client secret in payment_url
+    if (booking.payment_url && booking.payment_url.startsWith('pi_')) {
+      setClientSecret(booking.payment_url);
+      return;
+    }
+
+    // Fallback: call confirmBooking endpoint if payment_url wasn't provided
     setLoading(true);
     setError(null);
     try {
@@ -120,6 +127,8 @@ export default function BusReviewPage() {
 
       if (data?.stripe_client_secret) {
         setClientSecret(data.stripe_client_secret);
+      } else if (data?.payment_url && data.payment_url.startsWith('pi_')) {
+        setClientSecret(data.payment_url);
       } else if (data?.status === 'CONFIRMED' || data?.message === 'booking confirmed successfully') {
         router.push(`/buses/confirmation?booking_id=${booking.id}`);
       } else {
@@ -132,7 +141,21 @@ export default function BusReviewPage() {
     }
   };
 
-  const onStripePaymentSuccess = () => { setIsVerifying(true); };
+  const onStripePaymentSuccess = async () => {
+    setIsVerifying(true);
+    try {
+      await busApi.confirmBooking(booking.id);
+      setIsVerifying(false);
+      setIsConfirmed(true);
+      setTimeout(() => {
+        router.push(`/buses/confirmation?booking_id=${booking.id}`);
+      }, 2000);
+    } catch (err) {
+      console.error('Confirm booking failed:', err);
+      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to confirm booking after payment.');
+      setIsVerifying(false);
+    }
+  };
 
   if (!booking || !busSelectedInstance) return null;
 
@@ -236,14 +259,11 @@ export default function BusReviewPage() {
                 <div className="text-center md:text-left flex-1">
                   <p className="text-outline font-label text-[9px] uppercase tracking-[0.4em] mb-3 font-black">Boarding Point</p>
                   <h3 className="text-3xl font-headline text-primary mb-1 tracking-tighter">
-                    {booking.boarding_point?.stop_name || busSelectedInstance.origin}
+                    {typeof booking.boarding_point === 'string' ? booking.boarding_point : (booking.boarding_point?.stop_name || busSelectedInstance.origin)}
                   </h3>
                   <p className="text-on-surface-variant font-light text-sm">
-                    {booking.boarding_point?.pickup_time || (busSelectedInstance.departure_time ? new Date(busSelectedInstance.departure_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '')}
+                    {busSelectedInstance.departure_time ? new Date(busSelectedInstance.departure_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                   </p>
-                  {booking.boarding_point?.landmark && (
-                    <p className="text-[10px] text-secondary/60 mt-1 uppercase tracking-widest font-black">LM: {booking.boarding_point.landmark}</p>
-                  )}
                 </div>
 
                 <div className="flex flex-col items-center flex-1">
@@ -258,14 +278,11 @@ export default function BusReviewPage() {
                 <div className="text-center md:text-right flex-1">
                   <p className="text-outline font-label text-[9px] uppercase tracking-[0.4em] mb-3 font-black">Dropping Point</p>
                   <h3 className="text-3xl font-headline text-primary mb-1 tracking-tighter">
-                    {booking.dropping_point?.stop_name || busSelectedInstance.destination}
+                    {typeof booking.dropping_point === 'string' ? booking.dropping_point : (booking.dropping_point?.stop_name || busSelectedInstance.destination)}
                   </h3>
                   <p className="text-on-surface-variant font-light text-sm">
-                    {booking.dropping_point?.drop_time || (busSelectedInstance.arrival_time ? new Date(busSelectedInstance.arrival_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'TBD')}
+                    {busSelectedInstance.arrival_time ? new Date(busSelectedInstance.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'TBD'}
                   </p>
-                  {booking.dropping_point?.landmark && (
-                    <p className="text-[10px] text-secondary/60 mt-1 uppercase tracking-widest font-black">LM: {booking.dropping_point.landmark}</p>
-                  )}
                 </div>
               </div>
             </div>
@@ -339,7 +356,7 @@ export default function BusReviewPage() {
                 <div className="animate-in slide-in-from-bottom-4 duration-500">
                   <h3 className="font-headline text-xl text-primary mb-6">Complete Authorization</h3>
                   <Elements stripe={stripePromise} options={elementsOptions}>
-                    <CheckoutForm bookingId={booking.id} onPaymentSuccess={onStripePaymentSuccess} />
+                    <CheckoutForm bookingId={booking.id} onPaymentSuccess={onStripePaymentSuccess} returnUrl={`${window.location.origin}/buses/confirmation?booking_id=${booking.id}`} />
                   </Elements>
                   <button
                     onClick={() => setClientSecret('')}

@@ -57,17 +57,17 @@ export const busApi = {
 
   createBooking: async (bookingData) => {
     const { data } = await api.post('/buses/bookings', bookingData);
-    return data;
+    return data?.data || data;
   },
 
   getBookingById: async (bookingId) => {
     const { data } = await api.get(`/buses/bookings/${bookingId}`);
-    return data;
+    return data?.data || data;
   },
 
   getBookingByPnr: async (pnr) => {
     const { data } = await api.get(`/buses/bookings/pnr/${pnr}`);
-    return data;
+    return data?.data || data;
   },
 
   confirmBooking: async (bookingId) => {
@@ -78,16 +78,16 @@ export const busApi = {
 
   cancelBooking: async (bookingId, reason) => {
     const { data } = await api.post(`/buses/bookings/${bookingId}/cancel`, { reason });
-    return data;
+    return data?.data || data;
   },
 
   getBookingHistory: async () => {
     const { data } = await api.get('/buses/bookings/user/history');
-    return data;
+    return data?.data || data;
   },
 
   getTicket: async (bookingId) => {
     const { data } = await api.get(`/buses/bookings/${bookingId}/ticket`);
-    return data;
+    return data?.data || data;
   },
 };

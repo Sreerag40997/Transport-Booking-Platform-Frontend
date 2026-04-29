@@ -1,8 +1,11 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { busApi } from '@/lib/busApi';
-import { useAuthStore } from '@/lib/store';
+import { useAuthStore, useBookingStore } from '@/lib/store';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ChevronDown, MapPin, Search } from 'lucide-react';
 
 /**
  * SeatIcon - A realistic representation of a bus seat (Seater or Sleeper).
@@ -78,29 +81,61 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
   const [isAnimating, setIsAnimating] = useState(false);
   const [activeTab, setActiveTab] = useState('Select seats');
   const [errorMessage, setErrorMessage] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showBackWarning, setShowBackWarning] = useState(false);
+
+  // --- Shared Booking State (Defined first to avoid ReferenceErrors) ---
+  const [selectedSeats, setSelectedSeats] = useState([]);
+  const [boardingPoint, setBoardingPoint] = useState(null);
+  const [droppingPoint, setDroppingPoint] = useState(null);
+  const [passengersData, setPassengersData] = useState({});
+  const [formErrors, setFormErrors] = useState({});
+
+  const { isAuthenticated, setAuthModalOpen } = useAuthStore();
+  const setBusActiveBooking = useBookingStore(state => state.setBusActiveBooking);
+  const setActiveBooking = useBookingStore(state => state.setActiveBooking);
+  const setBusSelectedInstance = useBookingStore(state => state.setBusSelectedInstance);
+  const router = useRouter();
+
+  // Prevention for accidental refresh/navigation
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (selectedSeats.length > 0) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [selectedSeats.length]);
+
+  const handleCloseAttempt = () => {
+    if (selectedSeats.length > 0) {
+      setShowBackWarning(true);
+    } else {
+      onClose();
+    }
+  };
 
   const handleTabChange = (tab) => {
-    if (tab !== 'Select seats' && selectedSeats.length === 0) {
-      setErrorMessage('Please select at least one seat to proceed');
+    if (tab === 'Board/Drop point' && selectedSeats.length === 0) {
+      setErrorMessage('Please select a seat first to proceed');
+      setTimeout(() => setErrorMessage(null), 3000);
+      return;
+    }
+    if (tab === 'Passenger Info' && selectedSeats.length === 0) {
+      setErrorMessage('Please select a seat first to proceed');
       setTimeout(() => setErrorMessage(null), 3000);
       return;
     }
     if (tab === 'Passenger Info' && (!boardingPoint || !droppingPoint)) {
-      setErrorMessage('Please select boarding and dropping points to proceed');
+      setErrorMessage('Select boarding and dropping points to continue');
       setTimeout(() => setErrorMessage(null), 3000);
       return;
     }
     setActiveTab(tab);
     setErrorMessage(null);
   };
-
-  const { user } = useAuthStore();
-
-  // --- Shared Booking State ---
-  const [selectedSeats, setSelectedSeats] = useState([]);
-  const [boardingPoint, setBoardingPoint] = useState(null);
-  const [droppingPoint, setDroppingPoint] = useState(null);
-  const [passengersData, setPassengersData] = useState({});
 
   const handlePassengerChange = (seatId, field, value) => {
     setPassengersData(prev => ({
@@ -122,7 +157,46 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
   const [routeData, setRouteData] = useState([]);
   const [sidebarTab, setSidebarTab] = useState('policies');
 
-  const handleBookNow = () => {
+  const handleBookNow = async () => {
+    if (!isAuthenticated) {
+      setAuthModalOpen(true);
+      return;
+    }
+
+    if (isSubmitting) return;
+
+    // Validate that all fields are filled inline
+    const errors = {};
+    let hasError = false;
+
+    for (let i = 0; i < selectedSeats.length; i++) {
+      const seat = selectedSeats[i];
+      const p = passengersData[seat.seat_id] || {};
+      const isMen = seat.category === 'MEN';
+      const isWomen = seat.category === 'WOMEN';
+      const resolvedGender = isMen ? 'MEN' : isWomen ? 'WOMEN' : p.gender;
+
+      const seatErrors = {};
+      if (!p.first_name?.trim()) seatErrors.first_name = true;
+      if (!p.last_name?.trim()) seatErrors.last_name = true;
+      if (!p.date_of_birth) seatErrors.date_of_birth = true;
+      if (!resolvedGender) seatErrors.gender = true;
+      if (!p.id_type) seatErrors.id_type = true;
+      if (!p.id_number?.trim()) seatErrors.id_number = true;
+
+      if (Object.keys(seatErrors).length > 0) {
+        errors[seat.seat_id] = seatErrors;
+        hasError = true;
+      }
+    }
+
+    if (hasError) {
+      setFormErrors(errors);
+      return;
+    }
+    setFormErrors({});
+    setIsSubmitting(true);
+
     // Construct payload according to backend API requirements
     const payload = {
       bus_instance_id: bus.id,
@@ -133,22 +207,39 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
         const p = passengersData[seat.seat_id] || {};
         const isMen = seat.category === 'MEN';
         const isWomen = seat.category === 'WOMEN';
-        
+
         return {
           seat_id: seat.seat_id,
-          first_name: p.first_name || '',
-          last_name: p.last_name || '',
-          date_of_birth: p.date_of_birth || '',
-          gender: isMen ? 'MALE' : isWomen ? 'FEMALE' : (p.gender || ''),
-          passenger_type: p.passenger_type || 'ADULT',
-          id_type: p.id_type || '',
-          id_number: p.id_number || ''
+          first_name: p.first_name.trim(),
+          last_name: p.last_name.trim(),
+          date_of_birth: p.date_of_birth,
+          gender: isMen ? 'MEN' : isWomen ? 'WOMEN' : (p.gender || 'MEN'),
+          passenger_type: p.passenger_type || 'adult',
+          id_type: p.id_type,
+          id_number: p.id_number.trim()
         };
       })
     };
-    
-    console.log('Booking Payload:', JSON.stringify(payload, null, 2));
-    // TODO: Dispatch to API/store
+
+    try {
+      // busApi.createBooking already unwraps to the booking object directly
+      const booking = await busApi.createBooking(payload);
+      console.log('Booking API response:', booking);
+
+      if (booking && booking.id) {
+        setBusActiveBooking(booking);
+        setActiveBooking(booking);
+        setBusSelectedInstance(bus);
+        document.body.style.overflow = 'auto'; // Reset scroll lock from drawer
+        router.push('/buses/review');
+      }
+    } catch (error) {
+      const msg = error.response?.data?.message || error.response?.data?.error || 'Failed to create booking. Please try again.';
+      setErrorMessage(msg);
+      setTimeout(() => setErrorMessage(null), 4000);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // --- Categorize Seats Memo (The Source of Truth) ---
@@ -176,31 +267,24 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
 
       // Fares logic
       if (seat.seat_type?.toLowerCase() === 'sleeper') {
-        if (seat.berth_type?.toUpperCase() === 'LOWER') {
-          const fare = fares.find(f => f.seat_type?.toLowerCase() === 'sleeper' && f.name?.toUpperCase() === 'FLEXI');
-          if (fare) {
-            seatPrice += fare.price;
-            matchedFareId = fare.id;
-          }
-        } else {
-          const fare = fares.find(f => f.seat_type?.toLowerCase() === 'sleeper' && f.name?.toUpperCase() === 'GENERAL');
-          if (fare) {
-            seatPrice += fare.price;
-            matchedFareId = fare.id;
-          }
-        }
-      } else {
-        // Seater or semi_sleeper
-        const fare = fares.find(f => f.name === 'GENERAL' && f.seat_type !== 'sleeper');
+        const flexi = fares.find(f => f.seat_type?.toLowerCase() === 'sleeper' && f.name?.toUpperCase() === 'FLEXI');
+        const generalSleeper = fares.find(f => f.seat_type?.toLowerCase() === 'sleeper' && f.name?.toUpperCase() === 'GENERAL');
+        const anySleeper = fares.find(f => f.seat_type?.toLowerCase() === 'sleeper');
+
+        const fare = seat.berth_type?.toUpperCase() === 'LOWER'
+          ? (flexi || generalSleeper || anySleeper)
+          : (generalSleeper || flexi || anySleeper);
+
         if (fare) {
           seatPrice += fare.price;
           matchedFareId = fare.id;
-        } else {
-          const anyGeneral = fares.find(f => f.name === 'GENERAL');
-          if (anyGeneral) {
-            seatPrice += anyGeneral.price;
-            matchedFareId = anyGeneral.id;
-          }
+        }
+      } else {
+        // Seater or semi_sleeper
+        const fare = fares.find(f => f.name === 'GENERAL' && f.seat_type !== 'sleeper') || fares.find(f => f.name === 'GENERAL') || fares[0];
+        if (fare) {
+          seatPrice += fare.price;
+          matchedFareId = fare.id;
         }
       }
 
@@ -313,15 +397,36 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
     fetchData();
   }, [isOpen, bus?.id]);
 
-  // Auto-select first points for confirmation view
+  // Filter points by user's search
+  const filteredBoardingPoints = useMemo(() => {
+    if (!bus) return [];
+    const origin = bus.origin?.toLowerCase() || '';
+    return boardingPoints.filter(p =>
+      p.city?.toLowerCase().includes(origin) ||
+      p.stop_name?.toLowerCase().includes(origin) ||
+      origin.includes(p.city?.toLowerCase())
+    );
+  }, [boardingPoints, bus?.origin]);
+
+  const filteredDroppingPoints = useMemo(() => {
+    if (!bus) return [];
+    const dest = bus.destination?.toLowerCase() || '';
+    return droppingPoints.filter(p =>
+      p.city?.toLowerCase().includes(dest) ||
+      p.stop_name?.toLowerCase().includes(dest) ||
+      dest.includes(p.city?.toLowerCase())
+    );
+  }, [droppingPoints, bus?.destination]);
+
+  // Auto-select first points from FILTERED list
   useEffect(() => {
-    if (boardingPoints.length > 0 && !boardingPoint) {
-      setBoardingPoint(boardingPoints[0]);
+    if (filteredBoardingPoints.length > 0 && !boardingPoint) {
+      setBoardingPoint(filteredBoardingPoints[0]);
     }
-    if (droppingPoints.length > 0 && !droppingPoint) {
-      setDroppingPoint(droppingPoints[0]);
+    if (filteredDroppingPoints.length > 0 && !droppingPoint) {
+      setDroppingPoint(filteredDroppingPoints[0]);
     }
-  }, [boardingPoints, droppingPoints, boardingPoint, droppingPoint]);
+  }, [filteredBoardingPoints, filteredDroppingPoints, boardingPoint, droppingPoint]);
 
   const toggleSeat = (seat) => {
     setSelectedSeats(prev => {
@@ -329,6 +434,13 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
       if (isSelected) {
         return prev.filter(s => s.seat_number !== seat.seat_number);
       } else {
+        // Enforce single fare_type_id per booking to match backend limitation
+        if (prev.length > 0 && prev[0].fare_id !== seat.fare_id) {
+          setErrorMessage('You can only book seats of the same fare type in a single booking.');
+          setTimeout(() => setErrorMessage(null), 3000);
+          return prev;
+        }
+
         const selection = {
           seat_id: seat.id,
           seat_number: seat.seat_number,
@@ -372,7 +484,7 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
   return (
     <div className={`fixed inset-0 z-[100] flex flex-col transition-opacity duration-300 ${isAnimating ? 'opacity-100' : 'opacity-0'}`}>
       <style>{scrollbarStyles}</style>
-      <div className="h-[40px] w-full cursor-pointer bg-black/10 backdrop-blur-[1px]" onClick={onClose} />
+      <div className="h-[40px] w-full cursor-pointer bg-black/10 backdrop-blur-[1px]" onClick={handleCloseAttempt} />
 
       <div className={`flex-1 bg-surface-bright rounded-t-[32px] shadow-[0_-8px_40px_rgba(0,0,0,0.12)] border-t border-gray-100 flex flex-col transition-transform duration-300 ease-out transform ${isAnimating ? 'translate-y-0' : 'translate-y-full'}`}>
 
@@ -381,7 +493,7 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
         </div>
 
         <header className="px-6 py-4 border-b border-gray-100 flex items-center gap-4 bg-white sticky top-0 z-30">
-          <button onClick={onClose} className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-50 transition-colors text-primary border border-gray-100 shadow-sm">
+          <button onClick={handleCloseAttempt} className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-50 transition-colors text-primary border border-gray-100 shadow-sm">
             <span className="material-symbols-outlined text-xl">arrow_back</span>
           </button>
           <div className="flex-1 min-w-0">
@@ -412,16 +524,22 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
 
         <div className="flex justify-center border-b border-gray-100 bg-white">
           <div className="flex gap-8">
-            {['Select seats', 'Board/Drop point', 'Passenger Info'].map((tab, idx) => (
-              <button
-                key={tab}
-                onClick={() => handleTabChange(tab)}
-                className={`py-3 relative ${activeTab === tab ? 'text-primary' : 'text-outline'}`}
-              >
-                <span className="text-[9.5px] uppercase font-bold tracking-widest">{idx + 1}. {tab}</span>
-                {activeTab === tab && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />}
-              </button>
-            ))}
+            {['Select seats', 'Board/Drop point', 'Passenger Info'].map((tab, idx) => {
+              const isLocked = (tab === 'Board/Drop point' || tab === 'Passenger Info') && selectedSeats.length === 0;
+              const isInfoLocked = tab === 'Passenger Info' && (!boardingPoint || !droppingPoint);
+
+              return (
+                <button
+                  key={tab}
+                  onClick={() => handleTabChange(tab)}
+                  disabled={isLocked || (tab === 'Passenger Info' && isInfoLocked)}
+                  className={`py-3 relative ${activeTab === tab ? 'text-primary' : 'text-outline'} ${isLocked || isInfoLocked ? 'opacity-40 cursor-not-allowed' : ''}`}
+                >
+                  <span className="text-[9.5px] uppercase font-bold tracking-widest">{idx + 1}. {tab}</span>
+                  {activeTab === tab && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -888,25 +1006,32 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
                       </p>
                     </div>
                     <div className="flex-1">
-                      {boardingPoints.map((point) => (
-                        <div
-                          key={point.id}
-                          className={`w-full px-6 py-4 flex items-center justify-between border-b border-gray-50 last:border-0 ${boardingPoint?.id === point.id ? 'bg-primary/[0.03]' : ''}`}
-                        >
-                          <div className="flex items-center gap-4">
-                            <span className="text-[11px] font-black text-gray-700 w-10 text-left">
-                              {new Date(point.pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
-                            </span>
-                            <div className="text-left">
-                              <p className="text-[11px] font-black text-primary leading-tight">{point.stop_name}</p>
-                              <p className="text-[9px] font-bold text-outline uppercase mt-0.5 tracking-tight">{point.city}</p>
-                            </div>
-                          </div>
-                          {boardingPoint?.id === point.id && (
-                            <span className="material-symbols-outlined text-primary text-sm">check_circle</span>
-                          )}
+                      {filteredBoardingPoints.length === 0 ? (
+                        <div className="p-10 text-center">
+                          <p className="text-[10px] font-bold text-outline uppercase tracking-widest">No boarding points in {bus.origin}</p>
                         </div>
-                      ))}
+                      ) : (
+                        filteredBoardingPoints.map((point) => (
+                          <div
+                            key={point.id}
+                            onClick={() => setBoardingPoint(point)}
+                            className={`w-full px-6 py-4 flex items-center justify-between border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50/50 transition-colors ${boardingPoint?.id === point.id ? 'bg-primary/[0.03]' : ''}`}
+                          >
+                            <div className="flex items-center gap-4">
+                              <span className="text-[11px] font-black text-gray-700 w-10 text-left">
+                                {new Date(point.pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
+                              </span>
+                              <div className="text-left">
+                                <p className="text-[11px] font-black text-primary leading-tight">{point.stop_name}</p>
+                                <p className="text-[9px] font-bold text-outline uppercase mt-0.5 tracking-tight">{point.city}</p>
+                              </div>
+                            </div>
+                            {boardingPoint?.id === point.id && (
+                              <span className="material-symbols-outlined text-primary text-sm">check_circle</span>
+                            )}
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
 
@@ -919,25 +1044,32 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
                       </p>
                     </div>
                     <div className="flex-1">
-                      {droppingPoints.map((point) => (
-                        <div
-                          key={point.id}
-                          className={`w-full px-6 py-4 flex items-center justify-between border-b border-gray-50 last:border-0 ${droppingPoint?.id === point.id ? 'bg-primary/[0.03]' : ''}`}
-                        >
-                          <div className="flex items-center gap-4">
-                            <span className="text-[11px] font-black text-gray-700 w-10 text-left">
-                              {new Date(point.drop_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
-                            </span>
-                            <div className="text-left">
-                              <p className="text-[11px] font-black text-primary leading-tight">{point.stop_name}</p>
-                              <p className="text-[9px] font-bold text-outline uppercase mt-0.5 tracking-tight">{point.city}</p>
-                            </div>
-                          </div>
-                          {droppingPoint?.id === point.id && (
-                            <span className="material-symbols-outlined text-primary text-sm">check_circle</span>
-                          )}
+                      {filteredDroppingPoints.length === 0 ? (
+                        <div className="p-10 text-center">
+                          <p className="text-[10px] font-bold text-outline uppercase tracking-widest">No dropping points in {bus.destination}</p>
                         </div>
-                      ))}
+                      ) : (
+                        filteredDroppingPoints.map((point) => (
+                          <div
+                            key={point.id}
+                            onClick={() => setDroppingPoint(point)}
+                            className={`w-full px-6 py-4 flex items-center justify-between border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50/50 transition-colors ${droppingPoint?.id === point.id ? 'bg-primary/[0.03]' : ''}`}
+                          >
+                            <div className="flex items-center gap-4">
+                              <span className="text-[11px] font-black text-gray-700 w-10 text-left">
+                                {new Date(point.drop_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
+                              </span>
+                              <div className="text-left">
+                                <p className="text-[11px] font-black text-primary leading-tight">{point.stop_name}</p>
+                                <p className="text-[9px] font-bold text-outline uppercase mt-0.5 tracking-tight">{point.city}</p>
+                              </div>
+                            </div>
+                            {droppingPoint?.id === point.id && (
+                              <span className="material-symbols-outlined text-primary text-sm">check_circle</span>
+                            )}
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
 
@@ -954,104 +1086,103 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
                       const isMen = seat.category === 'MEN';
                       const isWomen = seat.category === 'WOMEN';
                       const passenger = passengersData[seat.seat_id] || {};
-                      
+                      const seatErrors = formErrors[seat.seat_id] || {};
+
                       const iconColor = isMen ? 'text-blue-500 bg-blue-50' : isWomen ? 'text-pink-500 bg-pink-50' : 'text-gray-500 bg-gray-100';
 
                       return (
                         <div key={seat.seat_id} className="bg-white rounded-[20px] border border-gray-100 p-4 shadow-sm">
                           <div className="flex items-center gap-3 mb-3 pb-3 border-b border-gray-50">
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${iconColor}`}>
-                               <span className="material-symbols-outlined text-lg">{isWomen ? 'woman' : 'person'}</span>
+                              <span className="material-symbols-outlined text-lg">{isWomen ? 'woman' : 'person'}</span>
                             </div>
                             <div>
                               <h4 className="text-[13px] font-black text-primary">Passenger {index + 1}</h4>
                               <p className="text-[9px] font-bold text-outline uppercase tracking-widest mt-0.5">Seat {seat.seat_number} • {seat.category || 'General'}</p>
                             </div>
                           </div>
-                          
+
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
-                              <label className="block text-[9px] font-bold text-outline uppercase mb-1 tracking-widest">First Name</label>
-                              <input 
-                                type="text" 
-                                value={passenger.first_name || ''} 
+                              <label className={`block text-[9px] font-bold uppercase mb-1 tracking-widest ${seatErrors.first_name ? 'text-red-500' : 'text-outline'}`}>First Name</label>
+                              <input
+                                type="text"
+                                value={passenger.first_name || ''}
                                 onChange={e => handlePassengerChange(seat.seat_id, 'first_name', e.target.value)}
-                                className="w-full text-xs font-bold text-primary border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary px-3 py-2 bg-gray-50 hover:bg-gray-100/50 transition-colors outline-none"
+                                className={`w-full text-xs font-bold text-primary border rounded-lg px-3 py-2 bg-gray-50 hover:bg-gray-100/50 transition-colors outline-none focus:ring-2 ${seatErrors.first_name ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-primary/20 focus:border-primary'}`}
                                 placeholder="First Name"
                               />
                             </div>
                             <div>
-                              <label className="block text-[9px] font-bold text-outline uppercase mb-1 tracking-widest">Last Name</label>
-                              <input 
-                                type="text" 
-                                value={passenger.last_name || ''} 
+                              <label className={`block text-[9px] font-bold uppercase mb-1 tracking-widest ${seatErrors.last_name ? 'text-red-500' : 'text-outline'}`}>Last Name</label>
+                              <input
+                                type="text"
+                                value={passenger.last_name || ''}
                                 onChange={e => handlePassengerChange(seat.seat_id, 'last_name', e.target.value)}
-                                className="w-full text-xs font-bold text-primary border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary px-3 py-2 bg-gray-50 hover:bg-gray-100/50 transition-colors outline-none"
+                                className={`w-full text-xs font-bold text-primary border rounded-lg px-3 py-2 bg-gray-50 hover:bg-gray-100/50 transition-colors outline-none focus:ring-2 ${seatErrors.last_name ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-primary/20 focus:border-primary'}`}
                                 placeholder="Last Name"
                               />
                             </div>
-                            
+
                             <div>
-                              <label className="block text-[9px] font-bold text-outline uppercase mb-1 tracking-widest">Date of Birth</label>
-                              <input 
-                                type="date" 
-                                value={passenger.date_of_birth || ''} 
+                              <label className={`block text-[9px] font-bold uppercase mb-1 tracking-widest ${seatErrors.date_of_birth ? 'text-red-500' : 'text-outline'}`}>Date of Birth</label>
+                              <input
+                                type="date"
+                                value={passenger.date_of_birth || ''}
                                 onChange={e => handlePassengerChange(seat.seat_id, 'date_of_birth', e.target.value)}
-                                className="w-full text-xs font-bold text-primary border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary px-3 py-2 bg-gray-50 hover:bg-gray-100/50 transition-colors outline-none"
+                                className={`w-full text-xs font-bold text-primary border rounded-lg px-3 py-2 bg-gray-50 hover:bg-gray-100/50 transition-colors outline-none focus:ring-2 ${seatErrors.date_of_birth ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-primary/20 focus:border-primary'}`}
                               />
                             </div>
-                            
+
                             <div>
-                              <label className="block text-[9px] font-bold text-outline uppercase mb-1 tracking-widest">Gender</label>
-                              <select 
-                                value={isMen ? 'MALE' : isWomen ? 'FEMALE' : passenger.gender || ''}
+                              <label className={`block text-[9px] font-bold uppercase mb-1 tracking-widest ${seatErrors.gender ? 'text-red-500' : 'text-outline'}`}>Gender</label>
+                              <select
+                                value={isMen ? 'MEN' : isWomen ? 'WOMEN' : passenger.gender || ''}
                                 onChange={e => handlePassengerChange(seat.seat_id, 'gender', e.target.value)}
                                 disabled={isMen || isWomen}
-                                className="w-full text-xs font-bold text-primary border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary px-3 py-2 bg-gray-50 disabled:opacity-60 disabled:bg-gray-100 hover:bg-gray-100/50 transition-colors outline-none cursor-pointer"
+                                className={`w-full text-xs font-bold text-primary border rounded-lg px-3 py-2 bg-gray-50 disabled:opacity-60 disabled:bg-gray-100 hover:bg-gray-100/50 transition-colors outline-none cursor-pointer focus:ring-2 ${seatErrors.gender ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-primary/20 focus:border-primary'}`}
                               >
                                 <option value="" disabled>Select Gender</option>
-                                <option value="MALE">Male</option>
-                                <option value="FEMALE">Female</option>
-                                <option value="OTHER">Other</option>
+                                <option value="MEN">Men</option>
+                                <option value="WOMEN">Women</option>
+                                <option value="OTHERS">Other</option>
                               </select>
                             </div>
 
                             <div>
                               <label className="block text-[9px] font-bold text-outline uppercase mb-1 tracking-widest">Passenger Type</label>
-                              <select 
-                                value={passenger.passenger_type || 'ADULT'}
+                              <select
+                                value={passenger.passenger_type || 'adult'}
                                 onChange={e => handlePassengerChange(seat.seat_id, 'passenger_type', e.target.value)}
                                 className="w-full text-xs font-bold text-primary border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary px-3 py-2 bg-gray-50 hover:bg-gray-100/50 transition-colors outline-none cursor-pointer"
                               >
-                                <option value="ADULT">Adult</option>
-                                <option value="CHILD">Child</option>
+                                <option value="adult">Adult</option>
+                                <option value="child">Child</option>
                               </select>
                             </div>
                           </div>
-                          
+
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4 pt-3 border-t border-gray-50">
                             <div>
-                              <label className="block text-[9px] font-bold text-outline uppercase mb-1 tracking-widest">ID Type</label>
-                              <select 
+                              <label className={`block text-[9px] font-bold uppercase mb-1 tracking-widest ${seatErrors.id_type ? 'text-red-500' : 'text-outline'}`}>ID Type</label>
+                              <select
                                 value={passenger.id_type || ''}
                                 onChange={e => handlePassengerChange(seat.seat_id, 'id_type', e.target.value)}
-                                className="w-full text-xs font-bold text-primary border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary px-3 py-2 bg-gray-50 hover:bg-gray-100/50 transition-colors outline-none cursor-pointer"
+                                className={`w-full text-xs font-bold text-primary border rounded-lg px-3 py-2 bg-gray-50 hover:bg-gray-100/50 transition-colors outline-none cursor-pointer focus:ring-2 ${seatErrors.id_type ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-primary/20 focus:border-primary'}`}
                               >
                                 <option value="" disabled>Select ID</option>
-                                <option value="AADHAR">Aadhar</option>
-                                <option value="PAN">PAN</option>
-                                <option value="VOTER_ID">Voter ID</option>
+                                <option value="AADHAAR">Aadhaar Card</option>
+                                <option value="PAN">PAN Card</option>
                                 <option value="PASSPORT">Passport</option>
-                                <option value="DRIVING_LICENSE">Driving License</option>
                               </select>
                             </div>
                             <div>
-                              <label className="block text-[9px] font-bold text-outline uppercase mb-1 tracking-widest">ID Number</label>
-                              <input 
-                                type="text" 
-                                value={passenger.id_number || ''} 
+                              <label className={`block text-[9px] font-bold uppercase mb-1 tracking-widest ${seatErrors.id_number ? 'text-red-500' : 'text-outline'}`}>ID Number</label>
+                              <input
+                                type="text"
+                                value={passenger.id_number || ''}
                                 onChange={e => handlePassengerChange(seat.seat_id, 'id_number', e.target.value)}
-                                className="w-full text-xs font-bold text-primary border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary px-3 py-2 bg-gray-50 hover:bg-gray-100/50 transition-colors outline-none"
+                                className={`w-full text-xs font-bold text-primary border rounded-lg px-3 py-2 bg-gray-50 hover:bg-gray-100/50 transition-colors outline-none focus:ring-2 ${seatErrors.id_number ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-primary/20 focus:border-primary'}`}
                                 placeholder="Enter ID Number"
                               />
                             </div>
@@ -1068,24 +1199,24 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
                   {/* Route Summary */}
                   <div className="bg-white rounded-[24px] border border-gray-100 shadow-sm p-6">
                     <h3 className="text-[11px] font-black text-primary uppercase tracking-widest mb-6">Journey Summary</h3>
-                    
+
                     <div className="relative border-l-2 border-dashed border-gray-200 ml-2 py-1 pl-6 space-y-8">
                       <div className="relative">
                         <div className="absolute -left-[31px] top-1 w-3.5 h-3.5 rounded-full bg-primary ring-4 ring-white" />
                         <p className="text-[9px] font-black text-outline uppercase tracking-widest leading-none mb-1">Boarding</p>
                         <p className="text-[13px] font-black text-primary leading-tight">{boardingPoint?.stop_name || 'Select Point'}</p>
                         <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-tight">
-                          {boardingPoint ? new Date(boardingPoint.pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--'} 
+                          {boardingPoint ? new Date(boardingPoint.pickup_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--'}
                           {boardingPoint?.city && ` • ${boardingPoint.city}`}
                         </p>
                       </div>
-                      
+
                       <div className="relative">
                         <div className="absolute -left-[31px] top-1 w-3.5 h-3.5 rounded-full bg-red-500 ring-4 ring-white" />
                         <p className="text-[9px] font-black text-outline uppercase tracking-widest leading-none mb-1">Dropping</p>
                         <p className="text-[13px] font-black text-primary leading-tight">{droppingPoint?.stop_name || 'Select Point'}</p>
                         <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase tracking-tight">
-                          {droppingPoint ? new Date(droppingPoint.drop_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--'} 
+                          {droppingPoint ? new Date(droppingPoint.drop_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--'}
                           {droppingPoint?.city && ` • ${droppingPoint.city}`}
                         </p>
                       </div>
@@ -1173,14 +1304,63 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
 
                 <button
                   onClick={handleBookNow}
-                  className="bg-green-600 text-white px-6 py-2.5 rounded-full font-black text-[10px] uppercase tracking-widest shadow-lg shadow-green-600/20 hover:bg-green-700 hover:scale-[1.02] active:scale-95 transition-all"
+                  disabled={isSubmitting}
+                  className={`px-6 py-2.5 rounded-full font-black text-[10px] uppercase tracking-widest shadow-lg transition-all ${isSubmitting
+                    ? 'bg-gray-400 text-white cursor-not-allowed shadow-none'
+                    : 'bg-green-600 text-white shadow-green-600/20 hover:bg-green-700 hover:scale-[1.02] active:scale-95'
+                    }`}
                 >
-                  Complete Booking
+                  {isSubmitting ? 'Processing...' : 'Complete Booking'}
                 </button>
               </div>
             )}
           </>
         )}
+
+        {/* Back Warning Modal */}
+        <AnimatePresence>
+          {showBackWarning && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6"
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center border border-gray-100"
+              >
+                <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <span className="material-symbols-outlined text-3xl">warning</span>
+                </div>
+                <h3 className="text-xl font-black text-primary uppercase tracking-tight mb-2">Abandon Selection?</h3>
+                <p className="text-xs font-medium text-gray-500 leading-relaxed mb-8">
+                  Going back will clear your selected seats. Your progress will be lost.
+                </p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => {
+                      setSelectedSeats([]);
+                      setShowBackWarning(false);
+                      onClose();
+                    }}
+                    className="w-full bg-red-500 text-white py-4 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-lg shadow-red-500/20 hover:bg-red-600 transition-all"
+                  >
+                    Yes, Reset & Close
+                  </button>
+                  <button
+                    onClick={() => setShowBackWarning(false)}
+                    className="w-full bg-gray-100 text-gray-600 py-4 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] hover:bg-gray-200 transition-all"
+                  >
+                    No, Stay Here
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Error Notification */}
         {errorMessage && (
