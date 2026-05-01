@@ -177,9 +177,15 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
       const resolvedGender = isMen ? 'MEN' : isWomen ? 'WOMEN' : p.gender;
 
       const seatErrors = {};
-      if (!p.first_name?.trim()) seatErrors.first_name = true;
-      if (!p.last_name?.trim()) seatErrors.last_name = true;
-      if (!p.date_of_birth) seatErrors.date_of_birth = true;
+      const nameRegex = /^[A-Za-z\s]+$/;
+      const minDob = new Date('1926-01-01');
+      const maxDob = new Date();
+
+      if (!p.first_name?.trim() || !nameRegex.test(p.first_name)) seatErrors.first_name = true;
+      if (!p.last_name?.trim() || !nameRegex.test(p.last_name)) seatErrors.last_name = true;
+      
+      const pDob = p.date_of_birth ? new Date(p.date_of_birth) : null;
+      if (!p.date_of_birth || (pDob && (pDob < minDob || pDob > maxDob))) seatErrors.date_of_birth = true;
       if (!resolvedGender) seatErrors.gender = true;
       if (!p.id_type) seatErrors.id_type = true;
       if (!p.id_number?.trim()) seatErrors.id_number = true;
@@ -418,15 +424,7 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
     );
   }, [droppingPoints, bus?.destination]);
 
-  // Auto-select first points from FILTERED list
-  useEffect(() => {
-    if (filteredBoardingPoints.length > 0 && !boardingPoint) {
-      setBoardingPoint(filteredBoardingPoints[0]);
-    }
-    if (filteredDroppingPoints.length > 0 && !droppingPoint) {
-      setDroppingPoint(filteredDroppingPoints[0]);
-    }
-  }, [filteredBoardingPoints, filteredDroppingPoints, boardingPoint, droppingPoint]);
+  // Removed auto-select useEffect to enforce manual selection of points
 
   const toggleSeat = (seat) => {
     setSelectedSeats(prev => {
@@ -482,15 +480,11 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
   `;
 
   return (
-    <div className={`fixed inset-0 z-[100] flex flex-col transition-opacity duration-300 ${isAnimating ? 'opacity-100' : 'opacity-0'}`}>
+    <div className={`fixed top-16 md:top-20 inset-x-0 bottom-0 z-[45] flex flex-col transition-opacity duration-300 ${isAnimating ? 'opacity-100' : 'opacity-0'}`}>
       <style>{scrollbarStyles}</style>
-      <div className="h-[40px] w-full cursor-pointer bg-black/10 backdrop-blur-[1px]" onClick={handleCloseAttempt} />
+      <div className="flex-1 bg-black/10 backdrop-blur-[1px] absolute inset-0 -z-10" onClick={handleCloseAttempt} />
 
-      <div className={`flex-1 bg-surface-bright rounded-t-[32px] shadow-[0_-8px_40px_rgba(0,0,0,0.12)] border-t border-gray-100 flex flex-col transition-transform duration-300 ease-out transform ${isAnimating ? 'translate-y-0' : 'translate-y-full'}`}>
-
-        <div className="w-full flex justify-center py-3">
-          <div className="w-12 h-1.5 bg-gray-200 rounded-full" />
-        </div>
+      <div className={`flex-1 bg-surface-bright shadow-[0_-8px_40px_rgba(0,0,0,0.12)] flex flex-col transition-transform duration-300 ease-out transform ${isAnimating ? 'translate-y-0' : 'translate-y-full'}`}>
 
         <header className="px-6 py-4 border-b border-gray-100 flex items-center gap-4 bg-white sticky top-0 z-30">
           <button onClick={handleCloseAttempt} className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-gray-50 transition-colors text-primary border border-gray-100 shadow-sm">
@@ -1128,6 +1122,8 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
                               <label className={`block text-[9px] font-bold uppercase mb-1 tracking-widest ${seatErrors.date_of_birth ? 'text-red-500' : 'text-outline'}`}>Date of Birth</label>
                               <input
                                 type="date"
+                                min="1926-01-01"
+                                max={new Date().toISOString().split('T')[0]}
                                 value={passenger.date_of_birth || ''}
                                 onChange={e => handlePassengerChange(seat.seat_id, 'date_of_birth', e.target.value)}
                                 className={`w-full text-xs font-bold text-primary border rounded-lg px-3 py-2 bg-gray-50 hover:bg-gray-100/50 transition-colors outline-none focus:ring-2 ${seatErrors.date_of_birth ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : 'border-gray-200 focus:ring-primary/20 focus:border-primary'}`}
@@ -1343,6 +1339,11 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
                   <button
                     onClick={() => {
                       setSelectedSeats([]);
+                      setBoardingPoint(null);
+                      setDroppingPoint(null);
+                      setPassengersData({});
+                      setFormErrors({});
+                      setActiveTab('Select seats');
                       setShowBackWarning(false);
                       onClose();
                     }}
@@ -1362,13 +1363,38 @@ export default function BusDetailsDrawer({ isOpen, onClose, bus }) {
           )}
         </AnimatePresence>
 
-        {/* Error Notification */}
-        {errorMessage && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-6 py-3 bg-red-500 text-white shadow-[0_12px_40px_rgba(239,68,68,0.3)] z-[120] flex items-center gap-3 rounded-full animate-in slide-in-from-bottom duration-300 whitespace-nowrap border border-red-400">
-            <span className="material-symbols-outlined text-sm">warning</span>
-            <span className="text-[10px] font-black uppercase tracking-widest">{errorMessage}</span>
-          </div>
-        )}
+        {/* Error Modal */}
+        <AnimatePresence>
+          {errorMessage && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6"
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center border border-gray-100"
+              >
+                <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <span className="material-symbols-outlined text-3xl">error</span>
+                </div>
+                <h3 className="text-xl font-black text-primary uppercase tracking-tight mb-2">Notice</h3>
+                <p className="text-xs font-medium text-gray-500 leading-relaxed mb-8">
+                  {errorMessage}
+                </p>
+                <button
+                  onClick={() => setErrorMessage(null)}
+                  className="w-full bg-primary text-white py-4 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all"
+                >
+                  Understood
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

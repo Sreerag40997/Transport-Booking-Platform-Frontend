@@ -10,14 +10,14 @@ const CollapsibleSection = ({ title, children, isOpen, onToggle }) => (
   <div className="border-b border-gray-50 last:border-0">
     <button
       onClick={onToggle}
-      className="w-full py-4 px-6 flex items-center justify-between hover:bg-gray-50 transition-colors group"
+      className="w-full py-3 px-5 flex items-center justify-between hover:bg-gray-50 transition-colors group"
     >
-      <span className="text-[11px] font-bold text-gray-800 uppercase tracking-wider group-hover:text-primary transition-colors">{title}</span>
+      <span className="text-[10px] font-bold text-gray-800 uppercase tracking-wider group-hover:text-primary transition-colors">{title}</span>
       <span className={`material-symbols-outlined text-gray-400 text-sm transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}>
         expand_more
       </span>
     </button>
-    {isOpen && <div className="px-6 pb-6 animate-in fade-in slide-in-from-top-1 duration-200">{children}</div>}
+    {isOpen && <div className="px-5 pb-5 animate-in fade-in slide-in-from-top-1 duration-200">{children}</div>}
   </div>
 );
 
@@ -42,6 +42,7 @@ const SearchFilter = ({ placeholder, value, onChange }) => (
  * Restricts Boarding/Dropping points based on the current search results or cities.
  */
 export default function BusFilterSidebar({ 
+  filters,
   onFilterChange, 
   origin = '', 
   destination = '', 
@@ -57,22 +58,19 @@ export default function BusFilterSidebar({
   const [boardingQuery, setBoardingQuery] = useState('');
   const [droppingQuery, setDroppingQuery] = useState('');
   
-  const [filters, setFilters] = useState({
-    departureTimes: [],
-    arrivalTimes: [],
-    types: [],
-    operators: [],
-    boardingPoints: [],
-    droppingPoints: []
-  });
-
   const [openSections, setOpenSections] = useState({
     time: true,
     arrival: true,
-    busType: true,
-    operator: true,
-    boarding: true,
-    dropping: true,
+    busType: false,
+    operator: false,
+    boarding: false,
+    dropping: false,
+  });
+
+  const [expandedSections, setExpandedSections] = useState({
+    operators: false,
+    boarding: false,
+    dropping: false
   });
 
   // --- Initial Data Fetch ---
@@ -92,28 +90,30 @@ export default function BusFilterSidebar({
     fetchData();
   }, []);
 
-  // Sync state with parent component
-  useEffect(() => {
-    onFilterChange?.(filters);
-  }, [filters, onFilterChange]);
-
   // --- Helpers ---
   
   const toggleFilter = (category, value) => {
-    setFilters(prev => {
-      const current = prev[category];
-      const isSelected = current.includes(value);
-      return {
-        ...prev,
-        [category]: isSelected ? current.filter(i => i !== value) : [...current, value]
-      };
+    const current = filters[category] || [];
+    const isSelected = current.includes(value);
+    const updated = isSelected ? current.filter(i => i !== value) : [...current, value];
+    
+    onFilterChange?.({
+      ...filters,
+      [category]: updated
     });
   };
 
   const toggleSection = (key) => setOpenSections(s => ({ ...s, [key]: !s[key] }));
 
   const clearAll = () => {
-    setFilters({ departureTimes: [], arrivalTimes: [], types: [], operators: [], boardingPoints: [], droppingPoints: [] });
+    onFilterChange?.({ 
+      departureTimes: [], 
+      arrivalTimes: [], 
+      types: [], 
+      operators: [], 
+      boardingPoints: [], 
+      droppingPoints: [] 
+    });
     setOperatorQuery('');
     setBoardingQuery('');
     setDroppingQuery('');
@@ -127,50 +127,69 @@ export default function BusFilterSidebar({
   );
 
   const finalBoardingList = useMemo(() => {
-    if (boardingPoints.length > 0) return boardingPoints.filter(p => p.toLowerCase().includes(boardingQuery.toLowerCase()));
-    return allStops
-      .filter(s => (s.city || '').toLowerCase() === origin.toLowerCase())
-      .filter(s => (s.name || '').toLowerCase().includes(boardingQuery.toLowerCase()))
-      .map(s => s.name);
-  }, [boardingPoints, allStops, origin, boardingQuery]);
+    const list = Array.from(new Set(boardingPoints)).filter(Boolean).sort();
+    return list.filter(p => String(p).toLowerCase().includes(boardingQuery.toLowerCase()));
+  }, [boardingPoints, boardingQuery]);
 
   const finalDroppingList = useMemo(() => {
-    if (droppingPoints.length > 0) return droppingPoints.filter(p => p.toLowerCase().includes(droppingQuery.toLowerCase()));
-    return allStops
-      .filter(s => (s.city || '').toLowerCase() === destination.toLowerCase())
-      .filter(s => (s.name || '').toLowerCase().includes(droppingQuery.toLowerCase()))
-      .map(s => s.name);
-  }, [droppingPoints, allStops, destination, droppingQuery]);
+    const list = Array.from(new Set(droppingPoints)).filter(Boolean).sort();
+    return list.filter(p => String(p).toLowerCase().includes(droppingQuery.toLowerCase()));
+  }, [droppingPoints, droppingQuery]);
 
   // --- Render Helpers ---
 
-  const renderCheckboxes = (list, category, isSelectedFn) => {
+  const renderCheckboxes = (list, category, isSelectedFn, sectionKey, query) => {
     if (list.length === 0) return <p className="text-[10px] text-gray-400 italic text-center py-2">No options found</p>;
-    return list.map(item => {
-      const label = item.name || item;
-      const isSelected = isSelectedFn(label);
-      return (
-        <label key={label} className="flex items-center gap-3 cursor-pointer group">
-          <input 
-            type="checkbox" 
-            checked={isSelected} 
-            onChange={() => toggleFilter(category, label)}
-            className="w-4 h-4 rounded border-gray-200 text-primary focus:ring-primary/20 cursor-pointer" 
-          />
-          <span className={`text-[11px] transition-colors ${isSelected ? 'text-primary font-bold' : 'text-gray-500 group-hover:text-primary'}`}>
-            {label}
-          </span>
-        </label>
-      );
-    });
+    
+    const isExpanded = expandedSections[sectionKey] || query.length > 0;
+    const displayList = isExpanded ? list : list.slice(0, 5);
+    const hasMore = list.length > 5 && !isExpanded;
+
+    return (
+      <div className="flex flex-col gap-2.5">
+        {displayList.map(item => {
+          const label = item.name || item;
+          const isSelected = isSelectedFn(label);
+          return (
+            <label key={label} className="flex items-center gap-3 cursor-pointer group">
+              <input 
+                type="checkbox" 
+                checked={isSelected} 
+                onChange={() => toggleFilter(category, label)}
+                className="w-4 h-4 rounded border-gray-200 text-primary focus:ring-primary/20 cursor-pointer" 
+              />
+              <span className={`text-[11px] transition-colors ${isSelected ? 'text-primary font-bold' : 'text-gray-500 group-hover:text-primary'}`}>
+                {label}
+              </span>
+            </label>
+          );
+        })}
+        {hasMore && (
+          <button 
+            onClick={() => setExpandedSections(prev => ({ ...prev, [sectionKey]: true }))}
+            className="text-[10px] font-bold text-secondary text-left mt-1 hover:underline"
+          >
+            + {list.length - 5} More
+          </button>
+        )}
+        {isExpanded && list.length > 5 && !query && (
+          <button 
+            onClick={() => setExpandedSections(prev => ({ ...prev, [sectionKey]: false }))}
+            className="text-[10px] font-bold text-secondary text-left mt-1 hover:underline"
+          >
+            Show Less
+          </button>
+        )}
+      </div>
+    );
   };
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden sticky top-32">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden sticky top-36 md:top-40">
       {/* Header */}
-      <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-gray-50/30">
-        <h3 className="text-[11px] font-bold text-primary uppercase tracking-widest">Filters</h3>
-        <button onClick={clearAll} className="text-[10px] font-bold text-secondary uppercase hover:text-primary transition-colors">
+      <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/30">
+        <h3 className="text-[10px] font-bold text-primary uppercase tracking-widest">Filters</h3>
+        <button onClick={clearAll} className="text-[9px] font-bold text-secondary uppercase hover:text-primary transition-colors">
           Clear All
         </button>
       </div>
@@ -215,24 +234,24 @@ export default function BusFilterSidebar({
         {/* Operators */}
         <CollapsibleSection title="Operators" isOpen={openSections.operator} onToggle={() => toggleSection('operator')}>
           <SearchFilter placeholder="Search Operator..." value={operatorQuery} onChange={setOperatorQuery} />
-          <div className="space-y-2.5 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-            {renderCheckboxes(filteredOperators, 'operators', (name) => filters.operators.includes(name))}
+          <div className="max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+            {renderCheckboxes(filteredOperators, 'operators', (name) => (filters.operators || []).includes(name), 'operators', operatorQuery)}
           </div>
         </CollapsibleSection>
 
         {/* Boarding Points */}
         <CollapsibleSection title="Boarding Points" isOpen={openSections.boarding} onToggle={() => toggleSection('boarding')}>
           <SearchFilter placeholder="Search Points..." value={boardingQuery} onChange={setBoardingQuery} />
-          <div className="space-y-2.5 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-            {renderCheckboxes(finalBoardingList, 'boardingPoints', (name) => filters.boardingPoints.includes(name))}
+          <div className="max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+            {renderCheckboxes(finalBoardingList, 'boardingPoints', (name) => (filters.boardingPoints || []).includes(name), 'boarding', boardingQuery)}
           </div>
         </CollapsibleSection>
 
         {/* Dropping Points */}
         <CollapsibleSection title="Dropping Points" isOpen={openSections.dropping} onToggle={() => toggleSection('dropping')}>
           <SearchFilter placeholder="Search Points..." value={droppingQuery} onChange={setDroppingQuery} />
-          <div className="space-y-2.5 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-            {renderCheckboxes(finalDroppingList, 'droppingPoints', (name) => filters.droppingPoints.includes(name))}
+          <div className="max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+            {renderCheckboxes(finalDroppingList, 'droppingPoints', (name) => (filters.droppingPoints || []).includes(name), 'dropping', droppingQuery)}
           </div>
         </CollapsibleSection>
       </div>

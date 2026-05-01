@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useBookingStore, useAuthStore } from '@/lib/store';
 import { busApi } from '@/lib/busApi';
 import { useBusSocket } from '@/hooks/useBusSocket';
+import { motion, AnimatePresence } from 'framer-motion';
 
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
@@ -30,6 +31,7 @@ export default function BusReviewPage() {
   const [clientSecret, setClientSecret] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
+  const [showBackWarning, setShowBackWarning] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -185,10 +187,28 @@ export default function BusReviewPage() {
   return (
     <main className="max-w-[1440px] mx-auto px-6 md:px-12 pt-24 md:pt-40 pb-32">
       <header className="mb-20">
-        <span className="text-secondary font-label text-[10px] font-black uppercase tracking-[0.4em] block mb-6">Step 05 — Review Your Trip</span>
-        <h1 className="text-5xl md:text-7xl font-headline font-normal leading-tight tracking-tight text-primary">
-          Review & <span className="italic font-light">Pay.</span>
-        </h1>
+        <div className="flex items-center gap-4 mb-6">
+          <button 
+            onClick={() => setShowBackWarning(true)}
+            className="w-10 h-10 flex items-center justify-center rounded-full border border-outline-variant/20 hover:bg-surface-container-high transition-colors text-primary"
+          >
+            <span className="material-symbols-outlined">arrow_back</span>
+          </button>
+          <span className="text-secondary font-label text-[10px] font-black uppercase tracking-[0.4em] block">Step 05 — Review Your Trip</span>
+        </div>
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+          <h1 className="text-5xl md:text-7xl font-headline font-normal leading-tight tracking-tight text-primary">
+            Review & <span className="italic font-light">Pay.</span>
+          </h1>
+          {booking.pnr && (
+            <div className="flex flex-col items-start md:items-end">
+              <span className="text-[9px] font-label font-black uppercase tracking-[0.3em] text-outline mb-1">Booking Reference</span>
+              <div className="px-5 py-3 bg-surface-container-low border border-outline-variant/10 editorial-shadow">
+                <span className="text-2xl font-headline text-primary tracking-tighter uppercase">{booking.pnr}</span>
+              </div>
+            </div>
+          )}
+        </div>
       </header>
 
       {/* Session Expired Overlay */}
@@ -326,13 +346,22 @@ export default function BusReviewPage() {
           <div className="bg-surface-container-low border border-outline-variant/5 editorial-shadow overflow-hidden">
             <div className={`p-10 space-y-6 border-b border-outline-variant/10 transition-opacity ${clientSecret ? 'opacity-30' : 'opacity-100'}`}>
               <h3 className="font-headline text-2xl text-primary mb-2">Fare Summary</h3>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-on-surface-variant font-light">Total Base & Fees</span>
-                <span className="font-headline text-lg text-primary">₹{booking.total_amount?.toLocaleString() || '—'}</span>
-              </div>
-              <div className="pt-6 border-t border-outline-variant/20 flex justify-between items-end">
-                <span className="text-[10px] font-label font-black uppercase tracking-[0.3em] text-secondary">Payable Now</span>
-                <span className="text-4xl font-headline text-primary tracking-tighter">₹{booking.total_amount?.toLocaleString() || '—'}</span>
+              
+              <div className="space-y-4">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-on-surface-variant font-light">Ticket Price</span>
+                  <span className="font-headline text-lg text-primary">₹{(booking.base_amount || (booking.total_amount ? booking.total_amount / 1.05 : 0)).toFixed(2)}</span>
+                </div>
+                
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-on-surface-variant font-light">GST (5%)</span>
+                  <span className="font-headline text-lg text-primary">₹{(booking.tax_amount || (booking.total_amount ? booking.total_amount - (booking.total_amount / 1.05) : 0)).toFixed(2)}</span>
+                </div>
+
+                <div className="pt-6 border-t border-outline-variant/20 flex justify-between items-end">
+                  <span className="text-[10px] font-label font-black uppercase tracking-[0.3em] text-secondary">Payable Now</span>
+                  <span className="text-4xl font-headline text-primary tracking-tighter">₹{(booking.total_amount || 0).toFixed(2)}</span>
+                </div>
               </div>
             </div>
 
@@ -378,6 +407,50 @@ export default function BusReviewPage() {
         </aside>
 
       </div>
+
+      {/* Back Warning Modal */}
+      <AnimatePresence>
+        {showBackWarning && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white rounded-[32px] p-8 max-w-sm w-full shadow-2xl text-center border border-gray-100"
+            >
+              <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                <span className="material-symbols-outlined text-3xl">warning</span>
+              </div>
+              <h3 className="text-xl font-black text-primary uppercase tracking-tight mb-2">Leave Payment Page?</h3>
+              <p className="text-xs font-medium text-gray-500 leading-relaxed mb-8">
+                If you go back now, your current booking progress and PNR ({booking.pnr}) will be released. You will need to start a new search.
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => {
+                    clearBusBookingFlow();
+                    router.push('/buses');
+                  }}
+                  className="w-full bg-red-500 text-white py-4 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-lg shadow-red-500/20 hover:bg-red-600 transition-all"
+                >
+                  Yes, Abandon & Go Back
+                </button>
+                <button
+                  onClick={() => setShowBackWarning(false)}
+                  className="w-full bg-gray-100 text-gray-600 py-4 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] hover:bg-gray-200 transition-all"
+                >
+                  No, Complete Payment
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 }
