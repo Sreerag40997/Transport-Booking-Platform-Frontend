@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useBookingStore } from '@/lib/store';
@@ -18,6 +18,12 @@ export default function BusTrackerPage() {
   const [view, setView] = useState('search'); // 'search', 'tracking', or 'loading'
   const [isInsideBus, setIsInsideBus] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
+  const [busDetails, setBusDetails] = useState(null);
+  const [boardingPoints, setBoardingPoints] = useState([]);
+  const [droppingPoints, setDroppingPoints] = useState([]);
+  const [currentTime, setCurrentTime] = useState(null);
+  const [visualProgress, setVisualProgress] = useState(0);
+  const [tripCompleted, setTripCompleted] = useState(false);
 
   const pnrFromStore = busActiveBooking?.pnr || '';
 
@@ -58,16 +64,31 @@ export default function BusTrackerPage() {
   }, [searchParams]);
 
   const handleTrack = async (e, overridePnr) => {
-    if (e) e.preventDefault();
-    const trackPnr = (overridePnr || pnrInput.trim() || pnrFromStore).toUpperCase();
-    if (!trackPnr) { setError('Please enter a PNR reference.'); return; }
-
     try {
       setLoading(true);
       setError('');
+
+      const trackPnr = (overridePnr || pnrInput.trim() || pnrFromStore).toUpperCase();
+      const urlInstanceId = searchParams.get('instance_id');
+
       const res = await busApi.getBookingByPnr(trackPnr);
-      const data = res?.data || res;
-      setBooking(data);
+      const bookingData = res?.data || res;
+      setBooking(bookingData);
+
+      const instanceId = urlInstanceId || bookingData?.bus_instance_id || bookingData?.bus_instance?.id;
+
+      if (instanceId) {
+        const [details, bPoints, dPoints] = await Promise.all([
+          busApi.getBusDetails(instanceId).catch(() => null),
+          busApi.getBoardingPoints(instanceId).catch(() => []),
+          busApi.getDroppingPoints(instanceId).catch(() => [])
+        ]);
+
+        if (details) setBusDetails(details?.data || details);
+        setBoardingPoints(Array.isArray(bPoints) ? bPoints : bPoints?.data || []);
+        setDroppingPoints(Array.isArray(dPoints) ? dPoints : dPoints?.data || []);
+      }
+
       setView('tracking');
     } catch (err) {
       setError(err.response?.data?.message || 'Unable to find booking. Please check the PNR.');
@@ -78,13 +99,106 @@ export default function BusTrackerPage() {
   };
 
   const instance = booking?.bus_instance;
-  const displayStops = [
-    { name: 'London Victoria', city: 'London', time: instance?.departure_at ? new Date(instance.departure_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '08:15 AM', status: 'passed', label: 'DEPARTED ON TIME' },
-    { name: 'Heathrow Terminals 2 & 3', city: 'Heathrow', time: '09:10 AM', status: 'current', label: 'Bus is approaching...' },
-    { name: 'High Wycombe Coachway', city: 'High Wycombe', time: '10:45 AM', status: 'upcoming', label: 'Scheduled' },
-    { name: 'Banbury Station', city: 'Banbury', time: '11:15 AM', status: 'upcoming', label: 'Scheduled' },
-    { name: 'Gloucester Green', city: 'Oxford', time: instance?.arrival_at ? new Date(instance.arrival_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '11:30 AM', status: 'destination', label: 'Final Destination' },
-  ];
+
+  // Update current time every 30 seconds
+  useEffect(() => {
+    setCurrentTime(new Date());
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const stops = useMemo(() => {
+    const combined = [
+      ...boardingPoints.map(p => ({
+        name: p.stop_name,
+        city: p.city,
+        time: p.pickup_time,
+        type: 'boarding',
+        id: p.id
+      })),
+      ...droppingPoints.map(p => ({
+        name: p.stop_name,
+        city: p.city,
+        time: p.drop_time,
+        type: 'dropping',
+        id: p.id
+      }))
+    ];
+
+    // Sort by time
+    return combined.sort((a, b) => new Date(a.time) - new Date(b.time));
+  }, [boardingPoints, droppingPoints]);
+
+  const displayStops = useMemo(() => {
+    if (!stops.length || !currentTime) return [];
+
+    const now = currentTime;
+    let currentIdx = -1;
+
+    const mapped = stops.map((stop, index) => {
+      const stopTime = new Date(stop.time);
+      let status = 'upcoming';
+      let label = 'Scheduled';
+
+      if (now > stopTime) {
+        status = 'passed';
+        label = stop.type === 'boarding' ? 'DEPARTED' : 'ARRIVED';
+      } else if (currentIdx === -1) {
+        status = 'current';
+        label = 'Bus is approaching...';
+        currentIdx = index;
+      }
+
+      if (index === stops.length - 1 && status !== 'passed') {
+        status = 'destination';
+        label = 'Final Destination';
+      }
+
+      return {
+        ...stop,
+        displayTime: stopTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        status,
+        label
+      };
+    });
+
+    // Handle Visual Progress and trip completed
+    if (stops.length > 0) {
+      const firstStop = new Date(stops[0].time);
+      const lastStop = new Date(stops[stops.length - 1].time);
+
+      if (now >= lastStop) {
+        setVisualProgress(100);
+        setTripCompleted(true);
+      } else if (now <= firstStop) {
+        setVisualProgress(0);
+        setTripCompleted(false);
+      } else {
+        setTripCompleted(false);
+        // Find current interval
+        let idx = 0;
+        for (let i = 0; i < stops.length - 1; i++) {
+          if (now >= new Date(stops[i].time) && now <= new Date(stops[i + 1].time)) {
+            idx = i;
+            break;
+          }
+        }
+
+        const startTime = new Date(stops[idx].time);
+        const endTime = new Date(stops[idx + 1].time);
+        const intervalProgress = (now - startTime) / (endTime - startTime);
+
+        // Total progress = (idx + intervalProgress) / (total intervals)
+        const totalIntervals = stops.length - 1;
+        const progress = ((idx + intervalProgress) / totalIntervals) * 100;
+        setVisualProgress(progress);
+      }
+    }
+
+    return mapped;
+  }, [stops, currentTime]);
 
   return (
     <main className="min-h-screen bg-[#fbf9fb] font-['Plus_Jakarta_Sans'] pb-32 pt-24">
@@ -161,28 +275,18 @@ export default function BusTrackerPage() {
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <button 
+                    <button
                       onClick={() => router.push(`/buses/confirmation?booking_id=${booking.id}`)}
                       className="mr-4 text-primary hover:text-secondary flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all"
                     >
                       <span className="material-symbols-outlined text-base">arrow_back</span>
                       Booking Details
                     </button>
-                    <span className="px-3 py-1 bg-primary-container text-white rounded-full font-semibold text-[12px] uppercase tracking-wider">
-                      BUS {instance?.bus?.bus_number || '402B'}
-                    </span>
-                    <span className="text-secondary font-black text-sm tracking-widest">LIVE</span>
-                    <button 
-                      onClick={() => setView('search')}
-                      className="ml-4 text-outline hover:text-primary text-[10px] font-black uppercase tracking-widest border-b border-transparent hover:border-primary transition-all"
-                    >
-                      Change Trip
-                    </button>
                   </div>
                   <h2 className="text-2xl font-bold text-primary tracking-tight">
-                    {instance?.bus?.origin_stop?.city || 'London'} → {instance?.bus?.destination_stop?.city || 'Oxford'}
+                    {busDetails?.bus?.origin_stop?.city || instance?.bus?.origin_stop?.city || 'Origin'} → {busDetails?.bus?.destination_stop?.city || instance?.bus?.destination_stop?.city || 'Destination'}
                   </h2>
-                  <p className="text-on-surface-variant text-sm font-medium">{instance?.bus?.bus_type || 'Intercity Premium Express • AC Seater'}</p>
+                  <p className="text-on-surface-variant text-sm font-medium">{busDetails?.bus?.bus_type?.name || instance?.bus?.bus_type || 'Intercity Premium Express'}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] text-secondary font-black uppercase tracking-[0.2em]">Current Status</p>
@@ -197,10 +301,10 @@ export default function BusTrackerPage() {
               {/* Left: Journey Map (Conceptual Visualization) */}
               <div className="lg:col-span-4 hidden lg:block">
                 <div className="sticky top-24 rounded-2xl overflow-hidden shadow-lg h-[600px] bg-surface-container-high relative">
-                  <img 
-                    className="w-full h-full object-cover grayscale opacity-40 transition-all duration-700 hover:grayscale-0 hover:opacity-60" 
-                    alt="Route Map" 
-                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuB4Eg2_G3lWUVtCMeEacz2TLZaK7d3euoW2_uoknr86yHkJiiGtU6Q7asrBKvbxMZzsz0xLDHtEFyg0xpqgXKRJfsv5c72H6iWfXF7h_pqTufWImd3sBzQUTSPmxwZy4UP9ua8-a75p60G_x88qQhqxI2blJaYgIm7rv8s5Q4lpUdg6ts7mcAqy7zYvkq7B6rDAKgL6l9EKQLzCoOJwuyiXB4V4_oOBx3LR38_ozJc5TrbG3hdIpN3hdO6BKIjRxn3aMNQqYoTpI8I" 
+                  <img
+                    className="w-full h-full object-cover grayscale opacity-40 transition-all duration-700 hover:grayscale-0 hover:opacity-60"
+                    alt="Route Map"
+                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuB4Eg2_G3lWUVtCMeEacz2TLZaK7d3euoW2_uoknr86yHkJiiGtU6Q7asrBKvbxMZzsz0xLDHtEFyg0xpqgXKRJfsv5c72H6iWfXF7h_pqTufWImd3sBzQUTSPmxwZy4UP9ua8-a75p60G_x88qQhqxI2blJaYgIm7rv8s5Q4lpUdg6ts7mcAqy7zYvkq7B6rDAKgL6l9EKQLzCoOJwuyiXB4V4_oOBx3LR38_ozJc5TrbG3hdIpN3hdO6BKIjRxn3aMNQqYoTpI8I"
                   />
                   <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-white/10 backdrop-blur-md">
                     <div className="w-20 h-20 rounded-full bg-white/20 flex items-center justify-center mb-6 ring-8 ring-white/10">
@@ -226,41 +330,61 @@ export default function BusTrackerPage() {
                     {/* The central vertical line */}
                     <div className="absolute left-1/2 -translate-x-1/2 top-12 bottom-12 w-1 bg-slate-100 rounded-full hidden md:block"></div>
                     <div className="absolute left-12 top-12 bottom-12 w-1 bg-slate-100 rounded-full md:hidden"></div>
-                    
-                    {/* Progress blue line (Mocked at 30%) */}
-                    <div className="absolute left-1/2 -translate-x-1/2 top-12 h-[calc(25%+1rem)] w-1 bg-secondary rounded-t-full hidden md:block"></div>
-                    <div className="absolute left-12 top-12 h-[calc(25%+1rem)] w-1 bg-secondary rounded-t-full md:hidden"></div>
-                    
+
+                    {/* Progress blue line (Dynamic) */}
+                    <motion.div
+                      className="absolute left-1/2 -translate-x-1/2 top-12 w-1 bg-secondary rounded-t-full hidden md:block"
+                      animate={{ height: `calc((100% - 6rem) * ${visualProgress / 100})` }}
+                      transition={{ duration: 1, ease: "linear" }}
+                    ></motion.div>
+                    <motion.div
+                      className="absolute left-12 top-12 w-1 bg-secondary rounded-t-full md:hidden"
+                      animate={{ height: `calc((100% - 6rem) * ${visualProgress / 100})` }}
+                      transition={{ duration: 1, ease: "linear" }}
+                    ></motion.div>
+
+                    {/* Floating Bus Icon */}
+                    <motion.div
+                      className="absolute left-1/2 -translate-x-1/2 z-30 hidden md:flex items-center justify-center bg-primary p-2 rounded-xl border-4 border-secondary shadow-xl"
+                      animate={{ top: `calc(3rem + (100% - 6rem) * ${visualProgress / 100})` }}
+                      style={{ translateY: '-50%' }}
+                      transition={{ duration: 1, ease: "linear" }}
+                    >
+                      <span className="material-symbols-outlined text-white text-base" style={{ fontVariationSettings: "'FILL' 1" }}>directions_bus</span>
+                    </motion.div>
+                    <motion.div
+                      className="absolute left-12 -translate-x-1/2 z-30 md:hidden flex items-center justify-center bg-primary p-2 rounded-xl border-4 border-secondary shadow-xl"
+                      animate={{ top: `calc(3rem + (100% - 6rem) * ${visualProgress / 100})` }}
+                      style={{ translateY: '-50%' }}
+                      transition={{ duration: 1, ease: "linear" }}
+                    >
+                      <span className="material-symbols-outlined text-white text-base" style={{ fontVariationSettings: "'FILL' 1" }}>directions_bus</span>
+                    </motion.div>
+
                     <div className="space-y-16">
                       {displayStops.map((stop, index) => (
                         <div key={index} className={`relative flex items-center md:justify-between group ${stop.status === 'upcoming' || stop.status === 'destination' ? 'opacity-40' : ''}`}>
                           <div className="hidden md:block w-5/12 text-right">
-                            <p className="text-xl font-bold text-primary">{stop.time}</p>
-                            <p className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">{stop.status === 'passed' ? 'Departure' : 'Arrival'}</p>
+                            <p className="text-xl font-bold text-primary">{stop.displayTime}</p>
+                            <p className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">{stop.type === 'boarding' ? 'Departure' : 'Arrival'}</p>
                           </div>
-                          
-                          {stop.status === 'current' ? (
-                            <div className="z-20 bg-primary p-2.5 rounded-2xl border-4 border-secondary shadow-xl md:mx-auto ml-7 md:ml-auto scale-110">
-                              <span className="material-symbols-outlined text-white text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>directions_bus</span>
-                            </div>
-                          ) : (
-                            <div className={`z-10 bg-white p-1 rounded-full border-4 ${stop.status === 'passed' ? 'border-secondary' : 'border-slate-100'} md:mx-auto ml-8 md:ml-auto`}>
-                              <div className={`w-3 h-3 ${stop.status === 'passed' ? 'bg-secondary' : 'bg-slate-200'} rounded-full`}></div>
-                            </div>
-                          )}
+
+                          <div className={`z-10 bg-white p-1 rounded-full border-4 ${stop.status === 'passed' ? 'border-secondary' : 'border-slate-100'} md:mx-auto ml-8 md:ml-auto`}>
+                            <div className={`w-3 h-3 ${stop.status === 'passed' ? 'bg-secondary' : 'bg-slate-200'} rounded-full`}></div>
+                          </div>
 
                           <div className="w-full md:w-5/12 pl-8 md:pl-0">
                             <div className="md:hidden mb-1 flex items-center gap-2">
-                              <span className="font-bold text-primary">{stop.time}</span>
-                              <span className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">{stop.status === 'passed' ? 'DEP' : 'ARR'}</span>
+                              <span className="font-bold text-primary">{stop.displayTime}</span>
+                              <span className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">{stop.type === 'boarding' ? 'DEP' : 'ARR'}</span>
                             </div>
                             <h4 className={`text-lg font-bold tracking-tight ${stop.status === 'current' ? 'text-secondary' : 'text-primary'}`}>{stop.name}</h4>
                             <p className="text-on-surface-variant text-sm font-medium mt-1">{stop.city} • {stop.status === 'passed' ? 'Verified departure' : stop.status === 'current' ? 'Live GPS Location' : 'Upcoming Station'}</p>
-                            
+
                             {stop.status === 'passed' && (
                               <span className="inline-block mt-3 px-3 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-widest rounded border border-emerald-100">DEPARTED ON TIME</span>
                             )}
-                            
+
                             {stop.status === 'current' && (
                               <div className="mt-3 flex items-center gap-2">
                                 <span className="animate-ping w-2 h-2 bg-secondary rounded-full"></span>
@@ -271,6 +395,20 @@ export default function BusTrackerPage() {
                         </div>
                       ))}
                     </div>
+
+                    {tripCompleted && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="mt-16 p-8 bg-emerald-50 border-2 border-emerald-100 rounded-3xl text-center"
+                      >
+                        <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <span className="material-symbols-outlined text-3xl">task_alt</span>
+                        </div>
+                        <h3 className="text-2xl font-bold text-emerald-800 tracking-tight">Trip Completed</h3>
+                        <p className="text-emerald-700/70 font-medium mt-2">The bus has reached its final destination. Thank you for traveling with us!</p>
+                      </motion.div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -290,17 +428,17 @@ export default function BusTrackerPage() {
                     </div>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       checked={isInsideBus}
                       onChange={handleLocationToggle}
-                      className="sr-only peer" 
+                      className="sr-only peer"
                     />
                     <div className="w-16 h-8 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-1 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-secondary"></div>
                   </label>
                 </div>
                 {isInsideBus && (
-                  <motion.div 
+                  <motion.div
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: 'auto', opacity: 1 }}
                     className="bg-secondary/5 p-8 border-t border-secondary/10 flex flex-col md:flex-row items-center justify-between gap-6"
@@ -315,7 +453,7 @@ export default function BusTrackerPage() {
                         {userLocation ? `${userLocation.lat}° N, ${userLocation.lng}° E` : 'Locating...'}
                       </span>
                     </div>
-                    <button 
+                    <button
                       onClick={() => { setIsInsideBus(false); setUserLocation(null); }}
                       className="text-secondary font-black text-[10px] uppercase tracking-widest hover:brightness-90 transition-all border-b-2 border-secondary"
                     >
