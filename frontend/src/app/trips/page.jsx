@@ -28,6 +28,7 @@ export default function MyTripsPage() {
 
   const [flightBookings, setFlightBookings] = useState([]);
   const [busBookings, setBusBookings] = useState([]);
+  const [busDetailsMap, setBusDetailsMap] = useState({});
   const [isLoading, setIsLoading] = useState(true);
   const [cancellingId, setCancellingId] = useState(null);
   const [error, setError] = useState(null);
@@ -52,8 +53,26 @@ export default function MyTripsPage() {
             busApi.getBookingHistory().catch(() => ({ data: [] }))
           ]);
 
+          const buses = busRes?.data || busRes || [];
           setFlightBookings(flightRes?.data || flightRes || []);
-          setBusBookings(busRes?.data || busRes || []);
+          setBusBookings(buses);
+
+          // Fetch unique bus instance details
+          const uniqueInstanceIds = [...new Set(buses.map(b => b.bus_instance_id).filter(id => !!id))];
+          if (uniqueInstanceIds.length > 0) {
+            const detailsResults = await Promise.all(
+              uniqueInstanceIds.map(id => busApi.getBusDetails(id).catch(() => null))
+            );
+            
+            const detailsMap = {};
+            detailsResults.forEach((res, index) => {
+              if (res) {
+                const data = res.data || res;
+                detailsMap[uniqueInstanceIds[index]] = data;
+              }
+            });
+            setBusDetailsMap(detailsMap);
+          }
         } catch (err) {
           console.error("Error fetching trips:", err);
           setError("Failed to load your booking history.");
@@ -132,7 +151,7 @@ export default function MyTripsPage() {
       return status === 'CONFIRMED' || status === 'SUCCESS';
     }
     return true; // 'all' or default
-  }).sort((a, b) => new Date(b.created_at || b.CreatedAt) - new Date(a.created_at || a.CreatedAt));
+  }).sort((a, b) => new Date(b.booked_at || b.created_at || b.CreatedAt) - new Date(a.booked_at || a.created_at || a.CreatedAt));
 
   const getStatusBadge = (status) => {
     const s = status?.toUpperCase();
@@ -289,7 +308,6 @@ export default function MyTripsPage() {
                     </div>
                     <h2 className="text-2xl font-bold text-primary font-['Plus_Jakarta_Sans'] tracking-tight">Bus Reservations</h2>
                   </div>
-
                   {/* Bus Filter Chips */}
                   <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-hide">
                     {[
@@ -301,8 +319,8 @@ export default function MyTripsPage() {
                         key={f.id}
                         onClick={() => setBusFilter(f.id)}
                         className={`h-9 px-5 rounded-lg text-[10px] uppercase tracking-widest font-black transition-all whitespace-nowrap ${busFilter === f.id
-                            ? 'bg-secondary text-white shadow-lg shadow-secondary/20'
-                            : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+                          ? 'bg-secondary text-white shadow-lg shadow-secondary/20'
+                          : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
                           }`}
                       >
                         {f.label}
@@ -314,7 +332,7 @@ export default function MyTripsPage() {
                 <div className="space-y-6">
                   {filteredBuses.length > 0 ? (
                     filteredBuses.map((booking, idx) => {
-                      const busDate = new Date(booking.departure_time || booking.created_at);
+                      const busDate = new Date(booking.departure_time || booking.booked_at || booking.created_at);
                       const arrivalDate = booking.arrival_time ? new Date(booking.arrival_time) : null;
 
                       return (
@@ -329,8 +347,17 @@ export default function MyTripsPage() {
                           <div className="p-8 flex-grow">
                             <div className="flex justify-between items-start mb-6">
                               <div>
-                                <p className="text-2xl font-bold text-primary mb-1 font-['Plus_Jakarta_Sans']">{booking.operator_name || booking.bus_instance?.bus?.operator?.name || 'Bus Operator'}</p>
-                                <p className="text-[10px] text-on-surface-variant uppercase tracking-[0.2em] font-black">{booking.bus_type || booking.bus_instance?.bus?.bus_type?.name || 'A/C Sleeper (2+1)'}</p>
+                                <p className="text-2xl font-bold text-primary mb-1 font-['Plus_Jakarta_Sans']">
+                                  {busDetailsMap[booking.bus_instance_id]?.bus?.operator?.name || booking.operator_name || 'Bus Operator'}
+                                </p>
+                                <div className="flex items-center gap-3">
+                                  <span className="px-2 py-0.5 bg-primary/10 text-primary rounded text-[9px] font-black tracking-widest uppercase">
+                                    {busDetailsMap[booking.bus_instance_id]?.bus?.bus_number || 'BUS'}
+                                  </span>
+                                  <p className="text-[10px] text-on-surface-variant uppercase tracking-[0.2em] font-black">
+                                    {busDetailsMap[booking.bus_instance_id]?.bus?.bus_type?.name || booking.bus_type || 'A/C Sleeper'}
+                                  </p>
+                                </div>
                               </div>
                               {getStatusBadge(booking.status)}
                             </div>
@@ -338,9 +365,13 @@ export default function MyTripsPage() {
                             <div className="flex items-center justify-between mb-8 relative">
                               <div className="flex flex-col">
                                 <span className="text-4xl md:text-5xl font-black text-primary tracking-tighter">
-                                  {busDate.toLocaleTimeString("en-IN", { hour: '2-digit', minute: '2-digit', hour12: false })}
+                                  {busDetailsMap[booking.bus_instance_id]?.departure_at 
+                                    ? new Date(busDetailsMap[booking.bus_instance_id].departure_at).toLocaleTimeString("en-IN", { hour: '2-digit', minute: '2-digit', hour12: false })
+                                    : busDate.toLocaleTimeString("en-IN", { hour: '2-digit', minute: '2-digit', hour12: false })}
                                 </span>
-                                <span className="text-sm font-bold text-on-surface mt-1">{booking.origin || booking.boarding_point?.city || 'Origin'}</span>
+                                <span className="text-sm font-bold text-on-surface mt-1">
+                                  {busDetailsMap[booking.bus_instance_id]?.bus?.origin_stop?.city || booking.origin || 'Origin'}
+                                </span>
                               </div>
 
                               <div className="flex-grow flex flex-col items-center px-8">
@@ -354,9 +385,13 @@ export default function MyTripsPage() {
 
                               <div className="flex flex-col text-right">
                                 <span className="text-4xl md:text-5xl font-black text-primary tracking-tighter">
-                                  {arrivalDate ? arrivalDate.toLocaleTimeString("en-IN", { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--'}
+                                  {busDetailsMap[booking.bus_instance_id]?.arrival_at 
+                                    ? new Date(busDetailsMap[booking.bus_instance_id].arrival_at).toLocaleTimeString("en-IN", { hour: '2-digit', minute: '2-digit', hour12: false })
+                                    : (arrivalDate ? arrivalDate.toLocaleTimeString("en-IN", { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--')}
                                 </span>
-                                <span className="text-sm font-bold text-on-surface mt-1">{booking.destination || booking.dropping_point?.city || 'Destination'}</span>
+                                <span className="text-sm font-bold text-on-surface mt-1">
+                                  {busDetailsMap[booking.bus_instance_id]?.bus?.destination_stop?.city || booking.destination || 'Destination'}
+                                </span>
                               </div>
                             </div>
 
@@ -381,12 +416,6 @@ export default function MyTripsPage() {
                             </div>
                           </div>
 
-                          <div className="bg-surface-container-lowest p-8 flex flex-col justify-center items-center border-t md:border-t-0 md:border-l border-outline-variant/30 min-w-[200px]">
-                            <div className="w-28 h-28 bg-slate-50 flex items-center justify-center border border-outline-variant/20 rounded-xl mb-4 group-hover:scale-105 transition-transform">
-                              <Ticket size={48} className="text-outline/20" />
-                            </div>
-                            <p className="text-[9px] text-outline text-center uppercase tracking-[0.25em] font-black">Scan at Boarding</p>
-                          </div>
                         </motion.div>
                       );
                     })
